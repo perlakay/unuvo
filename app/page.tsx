@@ -11,7 +11,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 
 export default function HomePage() {
   const [url, setUrl] = useState("")
+  const [token, setToken] = useState("")
   const [isScanning, setIsScanning] = useState(false)
+  const [error, setError] = useState("")
   const router = useRouter()
 
   const handleScan = async (e: React.FormEvent) => {
@@ -19,12 +21,36 @@ export default function HomePage() {
     if (!url) return
 
     setIsScanning(true)
+    setError("")
 
-    // Simulate API call to backend
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    try {
+      // Call the Vercel API endpoint
+      const response = await fetch("/api/scan", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          url: url,
+          token: token || undefined,
+        }),
+      })
 
-    // Navigate to dashboard with URL parameter
-    router.push(`/dashboard?url=${encodeURIComponent(url)}`)
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Scan failed")
+      }
+
+      // Store scan results and navigate to dashboard
+      localStorage.setItem("scanResults", JSON.stringify(data.data))
+      router.push(`/dashboard?url=${encodeURIComponent(url)}`)
+    } catch (error) {
+      console.error("Scan error:", error)
+      setError(error instanceof Error ? error.message : "Failed to start scan")
+    } finally {
+      setIsScanning(false)
+    }
   }
 
   const isValidUrl = (string: string) => {
@@ -72,6 +98,27 @@ export default function HomePage() {
                     />
                   </div>
                 </div>
+
+                {/* Optional JWT Token Input */}
+                <div className="relative group">
+                  <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 to-purple-500/10 rounded-xl blur-xl group-focus-within:blur-2xl transition-all duration-300" />
+                  <div className="relative">
+                    <Input
+                      type="text"
+                      placeholder="JWT Token (optional)"
+                      value={token}
+                      onChange={(e) => setToken(e.target.value)}
+                      className="h-12 text-sm bg-black/60 border-white/20 text-white placeholder:text-gray-500 focus:border-cyan-500/50 focus:ring-cyan-500/20 rounded-xl backdrop-blur-sm"
+                    />
+                  </div>
+                </div>
+
+                {error && (
+                  <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-center">
+                    {error}
+                  </div>
+                )}
+
                 <Button
                   type="submit"
                   className="w-full h-16 text-lg font-bold bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-700 hover:to-cyan-700 border-0 rounded-xl shadow-lg hover:shadow-purple-500/25 transition-all duration-300"
