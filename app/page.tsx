@@ -11,7 +11,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 
 export default function HomePage() {
   const [url, setUrl] = useState("")
+  const [token, setToken] = useState("")
   const [isScanning, setIsScanning] = useState(false)
+  const [error, setError] = useState("")
   const router = useRouter()
 
   const handleScan = async (e: React.FormEvent) => {
@@ -19,12 +21,122 @@ export default function HomePage() {
     if (!url) return
 
     setIsScanning(true)
+    setError("")
 
-    // Simulate API call to backend
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    try {
+      // Simulate API call to backend
+      // In production, this would be a real API call to your Python backend
+      await new Promise((resolve) => setTimeout(resolve, 2000))
 
-    // Navigate to dashboard with URL parameter
-    router.push(`/dashboard?url=${encodeURIComponent(url)}`)
+      // Mock scan results - in production this would come from your API
+      const mockResults = {
+        url: url,
+        scanDate: new Date().toISOString(),
+        securityScore: Math.floor(Math.random() * 40) + 40, // Random score between 40-80
+        totalVulnerabilities: 12,
+        critical: 2,
+        high: 3,
+        medium: 4,
+        low: 3,
+        vulnerabilities: [
+          {
+            id: 1,
+            title: "Missing Content Security Policy",
+            severity: "high",
+            category: "Headers",
+            description: "The application does not implement Content Security Policy headers.",
+          },
+          {
+            id: 2,
+            title: "Weak SSL/TLS Configuration",
+            severity: "critical",
+            category: "Encryption",
+            description: "The server supports weak cipher suites and outdated TLS versions.",
+          },
+          {
+            id: 3,
+            title: "Missing X-Frame-Options Header",
+            severity: "medium",
+            category: "Headers",
+            description: "The X-Frame-Options header is not set, allowing the page to be embedded in frames.",
+          },
+          {
+            id: 4,
+            title: "Information Disclosure",
+            severity: "low",
+            category: "Information",
+            description: "Error pages reveal sensitive information about the server configuration.",
+          },
+          {
+            id: 5,
+            title: "CORS Misconfiguration",
+            severity: "medium",
+            category: "Configuration",
+            description: "Cross-Origin Resource Sharing is misconfigured allowing unauthorized domains.",
+          },
+          {
+            id: 6,
+            title: "No Rate Limiting",
+            severity: "medium",
+            category: "API Security",
+            description: "The API does not implement rate limiting, making it vulnerable to brute force attacks.",
+          },
+          {
+            id: 7,
+            title: "Insecure JWT Configuration",
+            severity: "high",
+            category: "Authentication",
+            description: "JWT tokens use weak algorithms or have excessive lifetimes.",
+          },
+          {
+            id: 8,
+            title: "Missing HTTP Strict Transport Security",
+            severity: "medium",
+            category: "Headers",
+            description: "HSTS header is not implemented, allowing potential downgrade attacks.",
+          },
+          {
+            id: 9,
+            title: "Server Information Disclosure",
+            severity: "low",
+            category: "Information",
+            description: "Server headers reveal detailed version information.",
+          },
+          {
+            id: 10,
+            title: "Insecure Cookie Configuration",
+            severity: "low",
+            category: "Cookies",
+            description: "Cookies are set without secure or httpOnly flags.",
+          },
+          {
+            id: 11,
+            title: "Outdated Dependencies",
+            severity: "high",
+            category: "Dependencies",
+            description: "Several frontend libraries have known security vulnerabilities.",
+          },
+          {
+            id: 12,
+            title: "Exposed API Keys",
+            severity: "critical",
+            category: "Secrets",
+            description: "API keys are exposed in client-side code.",
+          },
+        ],
+      }
+
+      // Store results in localStorage
+      localStorage.setItem("scanResults", JSON.stringify(mockResults))
+
+      // Navigate to dashboard
+      router.push(`/dashboard?url=${encodeURIComponent(url)}`)
+    } catch (error) {
+      console.error("Scan error:", error)
+      setError(error instanceof Error ? error.message : "Failed to start scan")
+    } finally {
+      setIsScanning(false)
+    }
   }
 
   const isValidUrl = (string: string) => {
@@ -72,6 +184,27 @@ export default function HomePage() {
                     />
                   </div>
                 </div>
+
+                {/* JWT Token Input */}
+                <div className="relative group">
+                  <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 to-purple-500/10 rounded-xl blur-xl group-focus-within:blur-2xl transition-all duration-300" />
+                  <div className="relative">
+                    <Input
+                      type="text"
+                      placeholder="JWT Token (optional)"
+                      value={token}
+                      onChange={(e) => setToken(e.target.value)}
+                      className="h-12 text-sm bg-black/60 border-white/20 text-white placeholder:text-gray-500 focus:border-cyan-500/50 focus:ring-cyan-500/20 rounded-xl backdrop-blur-sm"
+                    />
+                  </div>
+                </div>
+
+                {error && (
+                  <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-center">
+                    {error}
+                  </div>
+                )}
+
                 <Button
                   type="submit"
                   className="w-full h-16 text-lg font-bold bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-700 hover:to-cyan-700 border-0 rounded-xl shadow-lg hover:shadow-purple-500/25 transition-all duration-300"
