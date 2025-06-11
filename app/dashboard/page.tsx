@@ -1,7 +1,7 @@
 "use client"
 
 import { useSearchParams } from "next/navigation"
-import { Suspense, useEffect, useState } from "react"
+import { Suspense } from "react"
 import {
   ArrowLeft,
   Shield,
@@ -15,7 +15,6 @@ import {
   Target,
   Eye,
   TrendingUp,
-  Scan,
 } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -24,60 +23,60 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-interface ScanResult {
-  url: string
-  scanDate: string
-  securityScore: number
-  totalVulnerabilities: number
-  critical: number
-  high: number
-  medium: number
-  low: number
-  vulnerabilities: Array<{
-    id: number
-    title: string
-    severity: string
-    category: string
-    description: string
-    impact: string
-    remediation: string
-  }>
+// Mock data for demonstration
+const mockScanResults = {
+  url: "https://example.com",
+  scanDate: "2024-01-15T10:30:00Z",
+  securityScore: 72,
+  totalVulnerabilities: 23,
+  critical: 2,
+  high: 5,
+  medium: 8,
+  low: 8,
+  vulnerabilities: [
+    {
+      id: 1,
+      title: "Missing Content Security Policy",
+      severity: "high",
+      category: "Security Headers",
+      description:
+        "The application does not implement Content Security Policy headers, making it vulnerable to XSS attacks.",
+      impact: "High risk of cross-site scripting attacks",
+      remediation: "Implement CSP headers with appropriate directives",
+    },
+    {
+      id: 2,
+      title: "Weak SSL/TLS Configuration",
+      severity: "critical",
+      category: "Encryption",
+      description: "The server supports weak cipher suites and outdated TLS versions.",
+      impact: "Man-in-the-middle attacks possible",
+      remediation: "Update TLS configuration to support only TLS 1.2+ with strong ciphers",
+    },
+    {
+      id: 3,
+      title: "Missing X-Frame-Options Header",
+      severity: "medium",
+      category: "Security Headers",
+      description: "The X-Frame-Options header is not set, allowing the page to be embedded in frames.",
+      impact: "Clickjacking attacks possible",
+      remediation: "Set X-Frame-Options header to DENY or SAMEORIGIN",
+    },
+    {
+      id: 4,
+      title: "Information Disclosure in Error Pages",
+      severity: "low",
+      category: "Information Disclosure",
+      description: "Error pages reveal sensitive information about the server configuration.",
+      impact: "Information leakage to attackers",
+      remediation: "Configure custom error pages that don't reveal system information",
+    },
+  ],
 }
 
 function DashboardContent() {
   const searchParams = useSearchParams()
-  const scannedUrl = searchParams.get("url") || ""
-
-  const [scanResults, setScanResults] = useState<ScanResult | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState("")
-
-  useEffect(() => {
-    const fetchScanResults = async () => {
-      setLoading(true)
-      setError("")
-
-      try {
-        // Get results from localStorage (stored after scan)
-        const storedResult = localStorage.getItem("scanResults")
-        if (storedResult) {
-          setScanResults(JSON.parse(storedResult))
-          setLoading(false)
-          return
-        }
-
-        // If no stored result, show error
-        setError("No scan results found")
-      } catch (err) {
-        console.error("Error loading scan results:", err)
-        setError("Failed to load scan results")
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchScanResults()
-  }, [scannedUrl])
+  const scannedUrl = searchParams.get("url") || mockScanResults.url
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {
@@ -121,34 +120,6 @@ function DashboardContent() {
     return "from-red-500 to-pink-500"
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="text-center">
-          <Scan className="h-12 w-12 text-purple-400 animate-spin mx-auto mb-4" />
-          <div className="text-white text-xl">Loading scan results...</div>
-        </div>
-      </div>
-    )
-  }
-
-  if (error || !scanResults) {
-    return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="text-center">
-          <XCircle className="h-12 w-12 text-red-400 mx-auto mb-4" />
-          <div className="text-white text-xl mb-4">{error || "Scan results not found"}</div>
-          <Link href="/">
-            <Button variant="outline" className="bg-black/40 border-white/20 text-white hover:bg-white/10">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Scanner
-            </Button>
-          </Link>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="min-h-screen bg-black relative overflow-hidden">
       {/* Animated background */}
@@ -179,11 +150,11 @@ function DashboardContent() {
               <div className="flex items-center text-gray-400 space-x-6">
                 <div className="flex items-center">
                   <Globe className="h-4 w-4 mr-2" />
-                  <span className="font-mono text-sm">{scanResults.url}</span>
+                  <span className="font-mono text-sm">{scannedUrl}</span>
                 </div>
                 <div className="flex items-center">
                   <Clock className="h-4 w-4 mr-2" />
-                  <span className="text-sm">{new Date(scanResults.scanDate).toLocaleString()}</span>
+                  <span className="text-sm">{new Date(mockScanResults.scanDate).toLocaleString()}</span>
                 </div>
               </div>
             </div>
@@ -197,15 +168,17 @@ function DashboardContent() {
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <p className="text-sm font-medium text-gray-400 uppercase tracking-wider">Security Score</p>
-                  <p className={`text-4xl font-black ${getScoreColor(scanResults.securityScore)} mt-2`}>
-                    {scanResults.securityScore}
+                  <p className={`text-4xl font-black ${getScoreColor(mockScanResults.securityScore)} mt-2`}>
+                    {mockScanResults.securityScore}
                   </p>
                 </div>
-                <div className={`p-3 rounded-xl bg-gradient-to-br ${getScoreGradient(scanResults.securityScore)}/20`}>
-                  <TrendingUp className={`h-8 w-8 ${getScoreColor(scanResults.securityScore)}`} />
+                <div
+                  className={`p-3 rounded-xl bg-gradient-to-br ${getScoreGradient(mockScanResults.securityScore)}/20`}
+                >
+                  <TrendingUp className={`h-8 w-8 ${getScoreColor(mockScanResults.securityScore)}`} />
                 </div>
               </div>
-              <Progress value={scanResults.securityScore} className="h-2 bg-gray-800" />
+              <Progress value={mockScanResults.securityScore} className="h-2 bg-gray-800" />
             </CardContent>
           </Card>
 
@@ -214,7 +187,7 @@ function DashboardContent() {
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <p className="text-sm font-medium text-gray-400 uppercase tracking-wider">Total Threats</p>
-                  <p className="text-4xl font-black text-white mt-2">{scanResults.totalVulnerabilities}</p>
+                  <p className="text-4xl font-black text-white mt-2">{mockScanResults.totalVulnerabilities}</p>
                 </div>
                 <div className="p-3 rounded-xl bg-gradient-to-br from-orange-500/20 to-red-500/20">
                   <Target className="h-8 w-8 text-orange-400" />
@@ -228,7 +201,7 @@ function DashboardContent() {
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <p className="text-sm font-medium text-gray-400 uppercase tracking-wider">Critical</p>
-                  <p className="text-4xl font-black text-red-400 mt-2">{scanResults.critical}</p>
+                  <p className="text-4xl font-black text-red-400 mt-2">{mockScanResults.critical}</p>
                 </div>
                 <div className="p-3 rounded-xl bg-gradient-to-br from-red-500/20 to-pink-500/20">
                   <XCircle className="h-8 w-8 text-red-400" />
@@ -242,7 +215,7 @@ function DashboardContent() {
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <p className="text-sm font-medium text-gray-400 uppercase tracking-wider">High Risk</p>
-                  <p className="text-4xl font-black text-orange-400 mt-2">{scanResults.high}</p>
+                  <p className="text-4xl font-black text-orange-400 mt-2">{mockScanResults.high}</p>
                 </div>
                 <div className="p-3 rounded-xl bg-gradient-to-br from-orange-500/20 to-yellow-500/20">
                   <AlertTriangle className="h-8 w-8 text-orange-400" />
@@ -266,9 +239,9 @@ function DashboardContent() {
                   <span className="font-semibold text-white">CRITICAL</span>
                 </div>
                 <div className="flex items-center space-x-4">
-                  <span className="text-3xl font-black text-red-400">{scanResults.critical}</span>
+                  <span className="text-3xl font-black text-red-400">{mockScanResults.critical}</span>
                   <Progress
-                    value={(scanResults.critical / scanResults.totalVulnerabilities) * 100}
+                    value={(mockScanResults.critical / mockScanResults.totalVulnerabilities) * 100}
                     className="w-32 h-2 bg-gray-800"
                   />
                 </div>
@@ -280,9 +253,9 @@ function DashboardContent() {
                   <span className="font-semibold text-white">HIGH</span>
                 </div>
                 <div className="flex items-center space-x-4">
-                  <span className="text-3xl font-black text-orange-400">{scanResults.high}</span>
+                  <span className="text-3xl font-black text-orange-400">{mockScanResults.high}</span>
                   <Progress
-                    value={(scanResults.high / scanResults.totalVulnerabilities) * 100}
+                    value={(mockScanResults.high / mockScanResults.totalVulnerabilities) * 100}
                     className="w-32 h-2 bg-gray-800"
                   />
                 </div>
@@ -294,9 +267,9 @@ function DashboardContent() {
                   <span className="font-semibold text-white">MEDIUM</span>
                 </div>
                 <div className="flex items-center space-x-4">
-                  <span className="text-3xl font-black text-yellow-400">{scanResults.medium}</span>
+                  <span className="text-3xl font-black text-yellow-400">{mockScanResults.medium}</span>
                   <Progress
-                    value={(scanResults.medium / scanResults.totalVulnerabilities) * 100}
+                    value={(mockScanResults.medium / mockScanResults.totalVulnerabilities) * 100}
                     className="w-32 h-2 bg-gray-800"
                   />
                 </div>
@@ -308,9 +281,9 @@ function DashboardContent() {
                   <span className="font-semibold text-white">LOW</span>
                 </div>
                 <div className="flex items-center space-x-4">
-                  <span className="text-3xl font-black text-blue-400">{scanResults.low}</span>
+                  <span className="text-3xl font-black text-blue-400">{mockScanResults.low}</span>
                   <Progress
-                    value={(scanResults.low / scanResults.totalVulnerabilities) * 100}
+                    value={(mockScanResults.low / mockScanResults.totalVulnerabilities) * 100}
                     className="w-32 h-2 bg-gray-800"
                   />
                 </div>
@@ -352,24 +325,24 @@ function DashboardContent() {
             <Tabs defaultValue="all" className="w-full">
               <TabsList className="grid w-full grid-cols-5 bg-black/60 border border-white/10">
                 <TabsTrigger value="all" className="data-[state=active]:bg-white/10 text-gray-300">
-                  All ({scanResults.totalVulnerabilities})
+                  All ({mockScanResults.totalVulnerabilities})
                 </TabsTrigger>
                 <TabsTrigger value="critical" className="data-[state=active]:bg-red-500/20 text-gray-300">
-                  Critical ({scanResults.critical})
+                  Critical ({mockScanResults.critical})
                 </TabsTrigger>
                 <TabsTrigger value="high" className="data-[state=active]:bg-orange-500/20 text-gray-300">
-                  High ({scanResults.high})
+                  High ({mockScanResults.high})
                 </TabsTrigger>
                 <TabsTrigger value="medium" className="data-[state=active]:bg-yellow-500/20 text-gray-300">
-                  Medium ({scanResults.medium})
+                  Medium ({mockScanResults.medium})
                 </TabsTrigger>
                 <TabsTrigger value="low" className="data-[state=active]:bg-blue-500/20 text-gray-300">
-                  Low ({scanResults.low})
+                  Low ({mockScanResults.low})
                 </TabsTrigger>
               </TabsList>
 
               <TabsContent value="all" className="space-y-6 mt-8">
-                {scanResults.vulnerabilities.map((vuln) => (
+                {mockScanResults.vulnerabilities.map((vuln) => (
                   <Card
                     key={vuln.id}
                     className="bg-black/60 backdrop-blur-xl border-l-4 border-l-red-500 border-t border-r border-b border-white/10"
@@ -420,7 +393,7 @@ function DashboardContent() {
               </TabsContent>
 
               <TabsContent value="critical" className="space-y-6 mt-8">
-                {scanResults.vulnerabilities
+                {mockScanResults.vulnerabilities
                   .filter((vuln) => vuln.severity === "critical")
                   .map((vuln) => (
                     <Card
