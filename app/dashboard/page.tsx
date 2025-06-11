@@ -10,9 +10,7 @@ import {
   Info,
   Globe,
   Clock,
-  Zap,
   Target,
-  Eye,
   TrendingUp,
   Scan,
   Download,
@@ -80,6 +78,39 @@ function DashboardContent() {
 
     fetchScanResults()
   }, [scannedUrl])
+
+  const handleExportReport = () => {
+    if (!scanResults) return
+
+    // Create a comprehensive report
+    const report = {
+      scanInfo: {
+        url: scanResults.url,
+        scanDate: scanResults.scanDate,
+        securityScore: scanResults.securityScore,
+        totalVulnerabilities: scanResults.totalVulnerabilities,
+      },
+      summary: {
+        critical: scanResults.critical,
+        high: scanResults.high,
+        medium: scanResults.medium,
+        low: scanResults.low,
+      },
+      vulnerabilities: scanResults.vulnerabilities,
+      generatedAt: new Date().toISOString(),
+    }
+
+    // Convert to JSON and download
+    const dataStr = JSON.stringify(report, null, 2)
+    const dataUri = "data:application/json;charset=utf-8," + encodeURIComponent(dataStr)
+
+    const exportFileDefaultName = `security-report-${new URL(scanResults.url).hostname}-${new Date().toISOString().split("T")[0]}.json`
+
+    const linkElement = document.createElement("a")
+    linkElement.setAttribute("href", dataUri)
+    linkElement.setAttribute("download", exportFileDefaultName)
+    linkElement.click()
+  }
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {
@@ -322,22 +353,21 @@ function DashboardContent() {
 
           <Card className="bg-black/40 backdrop-blur-xl border border-white/10">
             <CardHeader>
-              <CardTitle className="text-xl font-bold text-white">Quick Actions</CardTitle>
-              <CardDescription className="text-gray-400">Recommended next steps</CardDescription>
+              <CardTitle className="text-xl font-bold text-white">Export Report</CardTitle>
+              <CardDescription className="text-gray-400">Download comprehensive security analysis</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <Button className="w-full justify-start bg-gradient-to-r from-purple-600/20 to-cyan-600/20 border border-purple-500/30 text-white hover:from-purple-600/30 hover:to-cyan-600/30 backdrop-blur-sm">
+              <Button
+                onClick={handleExportReport}
+                className="w-full justify-start bg-gradient-to-r from-purple-600/20 to-cyan-600/20 border border-purple-500/30 text-white hover:from-purple-600/30 hover:to-cyan-600/30 backdrop-blur-sm"
+              >
                 <Download className="h-4 w-4 mr-3" />
-                Export Report
+                Download JSON Report
               </Button>
-              <Button className="w-full justify-start bg-gradient-to-r from-orange-600/20 to-red-600/20 border border-orange-500/30 text-white hover:from-orange-600/30 hover:to-red-600/30 backdrop-blur-sm">
-                <Zap className="h-4 w-4 mr-3" />
-                Schedule Re-scan
-              </Button>
-              <Button className="w-full justify-start bg-gradient-to-r from-green-600/20 to-emerald-600/20 border border-green-500/30 text-white hover:from-green-600/30 hover:to-emerald-600/30 backdrop-blur-sm">
-                <Eye className="h-4 w-4 mr-3" />
-                View Full Report
-              </Button>
+              <div className="text-xs text-gray-500 mt-2">
+                Exports a comprehensive JSON report containing all vulnerability findings, security scores, and
+                recommendations.
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -427,241 +457,71 @@ function DashboardContent() {
                 ))}
               </TabsContent>
 
-              <TabsContent value="critical" className="space-y-6 mt-8">
-                {scanResults.vulnerabilities
-                  .filter((vuln) => vuln.severity === "critical")
-                  .map((vuln) => (
-                    <Card
-                      key={vuln.id}
-                      className="bg-black/60 backdrop-blur-xl border-l-4 border-l-red-500 border-t border-r border-b border-white/10"
-                    >
-                      <CardContent className="p-6">
-                        <div className="flex items-start justify-between mb-6">
-                          <div className="flex items-center space-x-4">
-                            <div className="p-2 rounded-lg bg-red-500/20">{getSeverityIcon(vuln.severity)}</div>
-                            <div>
-                              <h3 className="font-bold text-xl text-white mb-2">{vuln.title}</h3>
-                              <div className="flex items-center space-x-3">
-                                <Badge
-                                  className={`${getSeverityColor(vuln.severity)} text-white font-semibold px-3 py-1`}
-                                >
-                                  {vuln.severity.toUpperCase()}
-                                </Badge>
-                                <Badge variant="outline" className="border-white/20 text-gray-300 px-3 py-1">
-                                  {vuln.category}
-                                </Badge>
+              {/* Individual severity tabs */}
+              {["critical", "high", "medium", "low"].map((severity) => (
+                <TabsContent key={severity} value={severity} className="space-y-6 mt-8">
+                  {scanResults.vulnerabilities
+                    .filter((vuln) => vuln.severity === severity)
+                    .map((vuln) => (
+                      <Card
+                        key={vuln.id}
+                        className={`bg-black/60 backdrop-blur-xl border-l-4 border-l-${severity === "critical" ? "red" : severity === "high" ? "orange" : severity === "medium" ? "yellow" : "blue"}-500 border-t border-r border-b border-white/10`}
+                      >
+                        <CardContent className="p-6">
+                          <div className="flex items-start justify-between mb-6">
+                            <div className="flex items-center space-x-4">
+                              <div
+                                className={`p-2 rounded-lg bg-${severity === "critical" ? "red" : severity === "high" ? "orange" : severity === "medium" ? "yellow" : "blue"}-500/20`}
+                              >
+                                {getSeverityIcon(vuln.severity)}
+                              </div>
+                              <div>
+                                <h3 className="font-bold text-xl text-white mb-2">{vuln.title}</h3>
+                                <div className="flex items-center space-x-3">
+                                  <Badge
+                                    className={`${getSeverityColor(vuln.severity)} text-white font-semibold px-3 py-1`}
+                                  >
+                                    {vuln.severity.toUpperCase()}
+                                  </Badge>
+                                  <Badge variant="outline" className="border-white/20 text-gray-300 px-3 py-1">
+                                    {vuln.category}
+                                  </Badge>
+                                </div>
                               </div>
                             </div>
                           </div>
-                        </div>
 
-                        <div className="space-y-4">
-                          <div className="p-4 rounded-xl bg-white/5 border border-white/10">
-                            <h4 className="font-semibold text-white mb-2 uppercase tracking-wider text-sm">
-                              Description
-                            </h4>
-                            <p className="text-gray-300 leading-relaxed">{vuln.description}</p>
-                          </div>
-
-                          {vuln.impact && (
-                            <div className="p-4 rounded-xl bg-red-500/5 border border-red-500/20">
-                              <h4 className="font-semibold text-red-400 mb-2 uppercase tracking-wider text-sm">
-                                Impact
+                          <div className="space-y-4">
+                            <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+                              <h4 className="font-semibold text-white mb-2 uppercase tracking-wider text-sm">
+                                Description
                               </h4>
-                              <p className="text-gray-300 leading-relaxed">{vuln.impact}</p>
+                              <p className="text-gray-300 leading-relaxed">{vuln.description}</p>
                             </div>
-                          )}
 
-                          {vuln.remediation && (
-                            <div className="p-4 rounded-xl bg-green-500/5 border border-green-500/20">
-                              <h4 className="font-semibold text-green-400 mb-2 uppercase tracking-wider text-sm">
-                                Remediation
-                              </h4>
-                              <p className="text-gray-300 leading-relaxed">{vuln.remediation}</p>
-                            </div>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-              </TabsContent>
-
-              <TabsContent value="high" className="space-y-6 mt-8">
-                {scanResults.vulnerabilities
-                  .filter((vuln) => vuln.severity === "high")
-                  .map((vuln) => (
-                    <Card
-                      key={vuln.id}
-                      className="bg-black/60 backdrop-blur-xl border-l-4 border-l-orange-500 border-t border-r border-b border-white/10"
-                    >
-                      <CardContent className="p-6">
-                        <div className="flex items-start justify-between mb-6">
-                          <div className="flex items-center space-x-4">
-                            <div className="p-2 rounded-lg bg-orange-500/20">{getSeverityIcon(vuln.severity)}</div>
-                            <div>
-                              <h3 className="font-bold text-xl text-white mb-2">{vuln.title}</h3>
-                              <div className="flex items-center space-x-3">
-                                <Badge
-                                  className={`${getSeverityColor(vuln.severity)} text-white font-semibold px-3 py-1`}
-                                >
-                                  {vuln.severity.toUpperCase()}
-                                </Badge>
-                                <Badge variant="outline" className="border-white/20 text-gray-300 px-3 py-1">
-                                  {vuln.category}
-                                </Badge>
+                            {vuln.impact && (
+                              <div className="p-4 rounded-xl bg-red-500/5 border border-red-500/20">
+                                <h4 className="font-semibold text-red-400 mb-2 uppercase tracking-wider text-sm">
+                                  Impact
+                                </h4>
+                                <p className="text-gray-300 leading-relaxed">{vuln.impact}</p>
                               </div>
-                            </div>
-                          </div>
-                        </div>
+                            )}
 
-                        <div className="space-y-4">
-                          <div className="p-4 rounded-xl bg-white/5 border border-white/10">
-                            <h4 className="font-semibold text-white mb-2 uppercase tracking-wider text-sm">
-                              Description
-                            </h4>
-                            <p className="text-gray-300 leading-relaxed">{vuln.description}</p>
-                          </div>
-
-                          {vuln.impact && (
-                            <div className="p-4 rounded-xl bg-red-500/5 border border-red-500/20">
-                              <h4 className="font-semibold text-red-400 mb-2 uppercase tracking-wider text-sm">
-                                Impact
-                              </h4>
-                              <p className="text-gray-300 leading-relaxed">{vuln.impact}</p>
-                            </div>
-                          )}
-
-                          {vuln.remediation && (
-                            <div className="p-4 rounded-xl bg-green-500/5 border border-green-500/20">
-                              <h4 className="font-semibold text-green-400 mb-2 uppercase tracking-wider text-sm">
-                                Remediation
-                              </h4>
-                              <p className="text-gray-300 leading-relaxed">{vuln.remediation}</p>
-                            </div>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-              </TabsContent>
-
-              <TabsContent value="medium" className="space-y-6 mt-8">
-                {scanResults.vulnerabilities
-                  .filter((vuln) => vuln.severity === "medium")
-                  .map((vuln) => (
-                    <Card
-                      key={vuln.id}
-                      className="bg-black/60 backdrop-blur-xl border-l-4 border-l-yellow-500 border-t border-r border-b border-white/10"
-                    >
-                      <CardContent className="p-6">
-                        <div className="flex items-start justify-between mb-6">
-                          <div className="flex items-center space-x-4">
-                            <div className="p-2 rounded-lg bg-yellow-500/20">{getSeverityIcon(vuln.severity)}</div>
-                            <div>
-                              <h3 className="font-bold text-xl text-white mb-2">{vuln.title}</h3>
-                              <div className="flex items-center space-x-3">
-                                <Badge
-                                  className={`${getSeverityColor(vuln.severity)} text-white font-semibold px-3 py-1`}
-                                >
-                                  {vuln.severity.toUpperCase()}
-                                </Badge>
-                                <Badge variant="outline" className="border-white/20 text-gray-300 px-3 py-1">
-                                  {vuln.category}
-                                </Badge>
+                            {vuln.remediation && (
+                              <div className="p-4 rounded-xl bg-green-500/5 border border-green-500/20">
+                                <h4 className="font-semibold text-green-400 mb-2 uppercase tracking-wider text-sm">
+                                  Remediation
+                                </h4>
+                                <p className="text-gray-300 leading-relaxed">{vuln.remediation}</p>
                               </div>
-                            </div>
+                            )}
                           </div>
-                        </div>
-
-                        <div className="space-y-4">
-                          <div className="p-4 rounded-xl bg-white/5 border border-white/10">
-                            <h4 className="font-semibold text-white mb-2 uppercase tracking-wider text-sm">
-                              Description
-                            </h4>
-                            <p className="text-gray-300 leading-relaxed">{vuln.description}</p>
-                          </div>
-
-                          {vuln.impact && (
-                            <div className="p-4 rounded-xl bg-red-500/5 border border-red-500/20">
-                              <h4 className="font-semibold text-red-400 mb-2 uppercase tracking-wider text-sm">
-                                Impact
-                              </h4>
-                              <p className="text-gray-300 leading-relaxed">{vuln.impact}</p>
-                            </div>
-                          )}
-
-                          {vuln.remediation && (
-                            <div className="p-4 rounded-xl bg-green-500/5 border border-green-500/20">
-                              <h4 className="font-semibold text-green-400 mb-2 uppercase tracking-wider text-sm">
-                                Remediation
-                              </h4>
-                              <p className="text-gray-300 leading-relaxed">{vuln.remediation}</p>
-                            </div>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-              </TabsContent>
-
-              <TabsContent value="low" className="space-y-6 mt-8">
-                {scanResults.vulnerabilities
-                  .filter((vuln) => vuln.severity === "low")
-                  .map((vuln) => (
-                    <Card
-                      key={vuln.id}
-                      className="bg-black/60 backdrop-blur-xl border-l-4 border-l-blue-500 border-t border-r border-b border-white/10"
-                    >
-                      <CardContent className="p-6">
-                        <div className="flex items-start justify-between mb-6">
-                          <div className="flex items-center space-x-4">
-                            <div className="p-2 rounded-lg bg-blue-500/20">{getSeverityIcon(vuln.severity)}</div>
-                            <div>
-                              <h3 className="font-bold text-xl text-white mb-2">{vuln.title}</h3>
-                              <div className="flex items-center space-x-3">
-                                <Badge
-                                  className={`${getSeverityColor(vuln.severity)} text-white font-semibold px-3 py-1`}
-                                >
-                                  {vuln.severity.toUpperCase()}
-                                </Badge>
-                                <Badge variant="outline" className="border-white/20 text-gray-300 px-3 py-1">
-                                  {vuln.category}
-                                </Badge>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="space-y-4">
-                          <div className="p-4 rounded-xl bg-white/5 border border-white/10">
-                            <h4 className="font-semibold text-white mb-2 uppercase tracking-wider text-sm">
-                              Description
-                            </h4>
-                            <p className="text-gray-300 leading-relaxed">{vuln.description}</p>
-                          </div>
-
-                          {vuln.impact && (
-                            <div className="p-4 rounded-xl bg-red-500/5 border border-red-500/20">
-                              <h4 className="font-semibold text-red-400 mb-2 uppercase tracking-wider text-sm">
-                                Impact
-                              </h4>
-                              <p className="text-gray-300 leading-relaxed">{vuln.impact}</p>
-                            </div>
-                          )}
-
-                          {vuln.remediation && (
-                            <div className="p-4 rounded-xl bg-green-500/5 border border-green-500/20">
-                              <h4 className="font-semibold text-green-400 mb-2 uppercase tracking-wider text-sm">
-                                Remediation
-                              </h4>
-                              <p className="text-gray-300 leading-relaxed">{vuln.remediation}</p>
-                            </div>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-              </TabsContent>
+                        </CardContent>
+                      </Card>
+                    ))}
+                </TabsContent>
+              ))}
             </Tabs>
           </CardContent>
         </Card>
