@@ -14,6 +14,8 @@ import {
   TrendingUp,
   Scan,
   Download,
+  Search,
+  Zap,
 } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -21,6 +23,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 
 interface Vulnerability {
   id: number
@@ -44,6 +54,22 @@ interface ScanResult {
   vulnerabilities: Vulnerability[]
 }
 
+interface SubdomainResult {
+  subdomain: string
+  status: string
+  ip?: string
+  technologies?: string[]
+}
+
+interface EndpointResult {
+  endpoint: string
+  method: string
+  status: number
+  responseTime: number
+  contentLength?: number
+  vulnerabilities?: string[]
+}
+
 function DashboardContent() {
   const searchParams = useSearchParams()
   const scannedUrl = searchParams.get("url") || ""
@@ -52,21 +78,24 @@ function DashboardContent() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
+  // Advanced scanning states
+  const [subdomainScanning, setSubdomainScanning] = useState(false)
+  const [endpointFuzzing, setEndpointFuzzing] = useState(false)
+  const [subdomainResults, setSubdomainResults] = useState<SubdomainResult[]>([])
+  const [endpointResults, setEndpointResults] = useState<EndpointResult[]>([])
+
   useEffect(() => {
     const fetchScanResults = async () => {
       setLoading(true)
       setError("")
 
       try {
-        // Get results from localStorage (stored after scan)
         const storedResult = localStorage.getItem("scanResults")
         if (storedResult) {
           setScanResults(JSON.parse(storedResult))
           setLoading(false)
           return
         }
-
-        // If no stored result, show error
         setError("No scan results found")
       } catch (err) {
         console.error("Error loading scan results:", err)
@@ -79,10 +108,53 @@ function DashboardContent() {
     fetchScanResults()
   }, [scannedUrl])
 
+  const handleSubdomainScan = async () => {
+    if (!scanResults) return
+
+    setSubdomainScanning(true)
+    try {
+      const response = await fetch("/api/subdomain-scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: scanResults.url }),
+      })
+
+      const data = await response.json()
+      if (data.success) {
+        setSubdomainResults(data.subdomains)
+      }
+    } catch (error) {
+      console.error("Subdomain scan failed:", error)
+    } finally {
+      setSubdomainScanning(false)
+    }
+  }
+
+  const handleEndpointFuzzing = async () => {
+    if (!scanResults) return
+
+    setEndpointFuzzing(true)
+    try {
+      const response = await fetch("/api/endpoint-fuzz", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: scanResults.url }),
+      })
+
+      const data = await response.json()
+      if (data.success) {
+        setEndpointResults(data.endpoints)
+      }
+    } catch (error) {
+      console.error("Endpoint fuzzing failed:", error)
+    } finally {
+      setEndpointFuzzing(false)
+    }
+  }
+
   const handleExportReport = () => {
     if (!scanResults) return
 
-    // Create a comprehensive report
     const report = {
       scanInfo: {
         url: scanResults.url,
@@ -97,13 +169,13 @@ function DashboardContent() {
         low: scanResults.low,
       },
       vulnerabilities: scanResults.vulnerabilities,
+      subdomains: subdomainResults,
+      endpoints: endpointResults,
       generatedAt: new Date().toISOString(),
     }
 
-    // Convert to JSON and download
     const dataStr = JSON.stringify(report, null, 2)
     const dataUri = "data:application/json;charset=utf-8," + encodeURIComponent(dataStr)
-
     const exportFileDefaultName = `security-report-${new URL(scanResults.url).hostname}-${new Date().toISOString().split("T")[0]}.json`
 
     const linkElement = document.createElement("a")
@@ -285,67 +357,199 @@ function DashboardContent() {
           </Card>
         </div>
 
-        {/* Vulnerability Breakdown */}
+        {/* Advanced Tools & Export Section */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
           <Card className="lg:col-span-2 bg-black/40 backdrop-blur-xl border border-white/10">
             <CardHeader>
-              <CardTitle className="text-2xl font-bold text-white">Threat Distribution</CardTitle>
-              <CardDescription className="text-gray-400">Security vulnerabilities by severity level</CardDescription>
+              <CardTitle className="text-2xl font-bold text-white">Advanced Security Tools</CardTitle>
+              <CardDescription className="text-gray-400">
+                Deep reconnaissance and vulnerability discovery
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-red-500/10 to-red-600/10 border border-red-500/20">
-                <div className="flex items-center space-x-4">
-                  <div className="w-3 h-3 bg-gradient-to-r from-red-500 to-red-600 rounded-full"></div>
-                  <span className="font-semibold text-white">CRITICAL</span>
-                </div>
-                <div className="flex items-center space-x-4">
-                  <span className="text-3xl font-black text-red-400">{scanResults.critical}</span>
-                  <Progress
-                    value={(scanResults.critical / scanResults.totalVulnerabilities) * 100}
-                    className="w-32 h-2 bg-gray-800"
-                  />
+            <CardContent className="space-y-4">
+              {/* Subdomain Discovery */}
+              <div className="p-4 rounded-xl bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center space-x-3">
+                    <Search className="h-6 w-6 text-cyan-400" />
+                    <div>
+                      <h3 className="font-semibold text-white">Subdomain Discovery</h3>
+                      <p className="text-sm text-gray-400">
+                        Find hidden subdomains using certificate transparency logs
+                      </p>
+                    </div>
+                  </div>
+                  <Dialog>
+                    <DialogTrigger asChild>
+                      <Button
+                        onClick={handleSubdomainScan}
+                        disabled={subdomainScanning}
+                        className="bg-cyan-600/20 border border-cyan-500/30 text-cyan-300 hover:bg-cyan-600/30"
+                      >
+                        {subdomainScanning ? (
+                          <>
+                            <Scan className="h-4 w-4 mr-2 animate-spin" />
+                            Scanning...
+                          </>
+                        ) : (
+                          <>
+                            <Search className="h-4 w-4 mr-2" />
+                            Discover
+                          </>
+                        )}
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="bg-black/90 border border-white/20 text-white max-w-4xl max-h-[80vh] overflow-y-auto">
+                      <DialogHeader>
+                        <DialogTitle className="text-2xl font-bold text-cyan-400">
+                          Subdomain Discovery Results
+                        </DialogTitle>
+                        <DialogDescription className="text-gray-400">
+                          Found {subdomainResults.length} subdomains for {new URL(scanResults.url).hostname}
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 mt-6">
+                        {subdomainResults.map((subdomain, index) => (
+                          <div key={index} className="p-4 rounded-lg bg-white/5 border border-white/10">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h4 className="font-semibold text-white">{subdomain.subdomain}</h4>
+                                <p className="text-sm text-gray-400">Status: {subdomain.status}</p>
+                                {subdomain.ip && <p className="text-sm text-gray-400">IP: {subdomain.ip}</p>}
+                              </div>
+                              <Badge
+                                className={
+                                  subdomain.status === "Active"
+                                    ? "bg-green-500/20 text-green-400"
+                                    : "bg-gray-500/20 text-gray-400"
+                                }
+                              >
+                                {subdomain.status}
+                              </Badge>
+                            </div>
+                            {subdomain.technologies && subdomain.technologies.length > 0 && (
+                              <div className="mt-2">
+                                <p className="text-xs text-gray-500">Technologies:</p>
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {subdomain.technologies.map((tech, techIndex) => (
+                                    <Badge
+                                      key={techIndex}
+                                      variant="outline"
+                                      className="text-xs border-white/20 text-gray-300"
+                                    >
+                                      {tech}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        {subdomainResults.length === 0 && (
+                          <div className="text-center py-8">
+                            <Search className="h-12 w-12 text-gray-500 mx-auto mb-4" />
+                            <p className="text-gray-400">
+                              No subdomains discovered yet. Click "Discover" to start scanning.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </DialogContent>
+                  </Dialog>
                 </div>
               </div>
 
-              <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-orange-500/10 to-red-500/10 border border-orange-500/20">
-                <div className="flex items-center space-x-4">
-                  <div className="w-3 h-3 bg-gradient-to-r from-orange-500 to-red-500 rounded-full"></div>
-                  <span className="font-semibold text-white">HIGH</span>
-                </div>
-                <div className="flex items-center space-x-4">
-                  <span className="text-3xl font-black text-orange-400">{scanResults.high}</span>
-                  <Progress
-                    value={(scanResults.high / scanResults.totalVulnerabilities) * 100}
-                    className="w-32 h-2 bg-gray-800"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border border-yellow-500/20">
-                <div className="flex items-center space-x-4">
-                  <div className="w-3 h-3 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-full"></div>
-                  <span className="font-semibold text-white">MEDIUM</span>
-                </div>
-                <div className="flex items-center space-x-4">
-                  <span className="text-3xl font-black text-yellow-400">{scanResults.medium}</span>
-                  <Progress
-                    value={(scanResults.medium / scanResults.totalVulnerabilities) * 100}
-                    className="w-32 h-2 bg-gray-800"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border border-blue-500/20">
-                <div className="flex items-center space-x-4">
-                  <div className="w-3 h-3 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full"></div>
-                  <span className="font-semibold text-white">LOW</span>
-                </div>
-                <div className="flex items-center space-x-4">
-                  <span className="text-3xl font-black text-blue-400">{scanResults.low}</span>
-                  <Progress
-                    value={(scanResults.low / scanResults.totalVulnerabilities) * 100}
-                    className="w-32 h-2 bg-gray-800"
-                  />
+              {/* API Endpoint Fuzzing */}
+              <div className="p-4 rounded-xl bg-gradient-to-r from-orange-500/10 to-red-500/10 border border-orange-500/20">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center space-x-3">
+                    <Zap className="h-6 w-6 text-orange-400" />
+                    <div>
+                      <h3 className="font-semibold text-white">API Endpoint Fuzzing</h3>
+                      <p className="text-sm text-gray-400">Discover hidden API endpoints using smart wordlists</p>
+                    </div>
+                  </div>
+                  <Dialog>
+                    <DialogTrigger asChild>
+                      <Button
+                        onClick={handleEndpointFuzzing}
+                        disabled={endpointFuzzing}
+                        className="bg-orange-600/20 border border-orange-500/30 text-orange-300 hover:bg-orange-600/30"
+                      >
+                        {endpointFuzzing ? (
+                          <>
+                            <Scan className="h-4 w-4 mr-2 animate-spin" />
+                            Fuzzing...
+                          </>
+                        ) : (
+                          <>
+                            <Zap className="h-4 w-4 mr-2" />
+                            Fuzz
+                          </>
+                        )}
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="bg-black/90 border border-white/20 text-white max-w-4xl max-h-[80vh] overflow-y-auto">
+                      <DialogHeader>
+                        <DialogTitle className="text-2xl font-bold text-orange-400">
+                          API Endpoint Fuzzing Results
+                        </DialogTitle>
+                        <DialogDescription className="text-gray-400">
+                          Discovered {endpointResults.length} endpoints for {new URL(scanResults.url).hostname}
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 mt-6">
+                        {endpointResults.map((endpoint, index) => (
+                          <div key={index} className="p-4 rounded-lg bg-white/5 border border-white/10">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h4 className="font-semibold text-white">
+                                  {endpoint.method} {endpoint.endpoint}
+                                </h4>
+                                <p className="text-sm text-gray-400">Response Time: {endpoint.responseTime}ms</p>
+                                {endpoint.contentLength && (
+                                  <p className="text-sm text-gray-400">Size: {endpoint.contentLength} bytes</p>
+                                )}
+                              </div>
+                              <Badge
+                                className={
+                                  endpoint.status < 300
+                                    ? "bg-green-500/20 text-green-400"
+                                    : endpoint.status < 400
+                                      ? "bg-yellow-500/20 text-yellow-400"
+                                      : endpoint.status < 500
+                                        ? "bg-orange-500/20 text-orange-400"
+                                        : "bg-red-500/20 text-red-400"
+                                }
+                              >
+                                {endpoint.status}
+                              </Badge>
+                            </div>
+                            {endpoint.vulnerabilities && endpoint.vulnerabilities.length > 0 && (
+                              <div className="mt-2">
+                                <p className="text-xs text-red-400">Potential Vulnerabilities:</p>
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {endpoint.vulnerabilities.map((vuln, vulnIndex) => (
+                                    <Badge key={vulnIndex} className="text-xs bg-red-500/20 text-red-400">
+                                      {vuln}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        {endpointResults.length === 0 && (
+                          <div className="text-center py-8">
+                            <Zap className="h-12 w-12 text-gray-500 mx-auto mb-4" />
+                            <p className="text-gray-400">
+                              No endpoints discovered yet. Click "Fuzz" to start scanning.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </DialogContent>
+                  </Dialog>
                 </div>
               </div>
             </CardContent>
@@ -353,7 +557,7 @@ function DashboardContent() {
 
           <Card className="bg-black/40 backdrop-blur-xl border border-white/10">
             <CardHeader>
-              <CardTitle className="text-xl font-bold text-white">Export Report</CardTitle>
+              <CardTitle className="text-xl font-bold text-white">Export & Actions</CardTitle>
               <CardDescription className="text-gray-400">Download comprehensive security analysis</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -362,11 +566,71 @@ function DashboardContent() {
                 className="w-full justify-start bg-gradient-to-r from-purple-600/20 to-cyan-600/20 border border-purple-500/30 text-white hover:from-purple-600/30 hover:to-cyan-600/30 backdrop-blur-sm"
               >
                 <Download className="h-4 w-4 mr-3" />
-                Download JSON Report
+                Download Full Report
               </Button>
               <div className="text-xs text-gray-500 mt-2">
-                Exports a comprehensive JSON report containing all vulnerability findings, security scores, and
-                recommendations.
+                Exports comprehensive JSON report including vulnerabilities, subdomains, and discovered endpoints.
+              </div>
+
+              <div className="pt-4 border-t border-white/10">
+                <h4 className="text-sm font-semibold text-white mb-2">Scan Summary</h4>
+                <div className="space-y-2 text-xs text-gray-400">
+                  <div className="flex justify-between">
+                    <span>Subdomains Found:</span>
+                    <span className="text-cyan-400">{subdomainResults.length}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Endpoints Discovered:</span>
+                    <span className="text-orange-400">{endpointResults.length}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Vulnerabilities:</span>
+                    <span className="text-red-400">{scanResults.totalVulnerabilities}</span>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Threat Distribution */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
+          <Card className="lg:col-span-3 bg-black/40 backdrop-blur-xl border border-white/10">
+            <CardHeader>
+              <CardTitle className="text-2xl font-bold text-white">Threat Distribution</CardTitle>
+              <CardDescription className="text-gray-400">Security vulnerabilities by severity level</CardDescription>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-red-500/10 to-red-600/10 border border-red-500/20">
+                <div className="flex items-center space-x-4">
+                  <div className="w-3 h-3 bg-gradient-to-r from-red-500 to-red-600 rounded-full"></div>
+                  <span className="font-semibold text-white">CRITICAL</span>
+                </div>
+                <span className="text-3xl font-black text-red-400">{scanResults.critical}</span>
+              </div>
+
+              <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-orange-500/10 to-red-500/10 border border-orange-500/20">
+                <div className="flex items-center space-x-4">
+                  <div className="w-3 h-3 bg-gradient-to-r from-orange-500 to-red-500 rounded-full"></div>
+                  <span className="font-semibold text-white">HIGH</span>
+                </div>
+                <span className="text-3xl font-black text-orange-400">{scanResults.high}</span>
+              </div>
+
+              <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border border-yellow-500/20">
+                <div className="flex items-center space-x-4">
+                  <div className="w-3 h-3 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-full"></div>
+                  <span className="font-semibold text-white">MEDIUM</span>
+                </div>
+                <span className="text-3xl font-black text-yellow-400">{scanResults.medium}</span>
+              </div>
+
+              <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border border-blue-500/20">
+                <div className="flex items-center space-x-4">
+                  <div className="w-3 h-3 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full"></div>
+                  <span className="font-semibold text-white">LOW</span>
+                </div>
+                <span className="text-3xl font-black text-blue-400">{scanResults.low}</span>
               </div>
             </CardContent>
           </Card>
@@ -398,80 +662,36 @@ function DashboardContent() {
                 </TabsTrigger>
               </TabsList>
 
-              <TabsContent value="all" className="space-y-6 mt-8">
-                {scanResults.vulnerabilities.map((vuln) => (
-                  <Card
-                    key={vuln.id}
-                    className={`bg-black/60 backdrop-blur-xl border-l-4 border-l-${vuln.severity === "critical" ? "red" : vuln.severity === "high" ? "orange" : vuln.severity === "medium" ? "yellow" : "blue"}-500 border-t border-r border-b border-white/10`}
-                  >
-                    <CardContent className="p-6">
-                      <div className="flex items-start justify-between mb-6">
-                        <div className="flex items-center space-x-4">
-                          <div
-                            className={`p-2 rounded-lg bg-${vuln.severity === "critical" ? "red" : vuln.severity === "high" ? "orange" : vuln.severity === "medium" ? "yellow" : "blue"}-500/20`}
-                          >
-                            {getSeverityIcon(vuln.severity)}
-                          </div>
-                          <div>
-                            <h3 className="font-bold text-xl text-white mb-2">{vuln.title}</h3>
-                            <div className="flex items-center space-x-3">
-                              <Badge
-                                className={`${getSeverityColor(vuln.severity)} text-white font-semibold px-3 py-1`}
-                              >
-                                {vuln.severity.toUpperCase()}
-                              </Badge>
-                              <Badge variant="outline" className="border-white/20 text-gray-300 px-3 py-1">
-                                {vuln.category}
-                              </Badge>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-4">
-                        <div className="p-4 rounded-xl bg-white/5 border border-white/10">
-                          <h4 className="font-semibold text-white mb-2 uppercase tracking-wider text-sm">
-                            Description
-                          </h4>
-                          <p className="text-gray-300 leading-relaxed">{vuln.description}</p>
-                        </div>
-
-                        {vuln.impact && (
-                          <div className="p-4 rounded-xl bg-red-500/5 border border-red-500/20">
-                            <h4 className="font-semibold text-red-400 mb-2 uppercase tracking-wider text-sm">Impact</h4>
-                            <p className="text-gray-300 leading-relaxed">{vuln.impact}</p>
-                          </div>
-                        )}
-
-                        {vuln.remediation && (
-                          <div className="p-4 rounded-xl bg-green-500/5 border border-green-500/20">
-                            <h4 className="font-semibold text-green-400 mb-2 uppercase tracking-wider text-sm">
-                              Remediation
-                            </h4>
-                            <p className="text-gray-300 leading-relaxed">{vuln.remediation}</p>
-                          </div>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </TabsContent>
-
-              {/* Individual severity tabs */}
-              {["critical", "high", "medium", "low"].map((severity) => (
+              {["all", "critical", "high", "medium", "low"].map((severity) => (
                 <TabsContent key={severity} value={severity} className="space-y-6 mt-8">
                   {scanResults.vulnerabilities
-                    .filter((vuln) => vuln.severity === severity)
+                    .filter((vuln) => severity === "all" || vuln.severity === severity)
                     .map((vuln) => (
                       <Card
                         key={vuln.id}
-                        className={`bg-black/60 backdrop-blur-xl border-l-4 border-l-${severity === "critical" ? "red" : severity === "high" ? "orange" : severity === "medium" ? "yellow" : "blue"}-500 border-t border-r border-b border-white/10`}
+                        className={`bg-black/60 backdrop-blur-xl border-l-4 border-l-${
+                          vuln.severity === "critical"
+                            ? "red"
+                            : vuln.severity === "high"
+                              ? "orange"
+                              : vuln.severity === "medium"
+                                ? "yellow"
+                                : "blue"
+                        }-500 border-t border-r border-b border-white/10`}
                       >
                         <CardContent className="p-6">
                           <div className="flex items-start justify-between mb-6">
                             <div className="flex items-center space-x-4">
                               <div
-                                className={`p-2 rounded-lg bg-${severity === "critical" ? "red" : severity === "high" ? "orange" : severity === "medium" ? "yellow" : "blue"}-500/20`}
+                                className={`p-2 rounded-lg bg-${
+                                  vuln.severity === "critical"
+                                    ? "red"
+                                    : vuln.severity === "high"
+                                      ? "orange"
+                                      : vuln.severity === "medium"
+                                        ? "yellow"
+                                        : "blue"
+                                }-500/20`}
                               >
                                 {getSeverityIcon(vuln.severity)}
                               </div>
@@ -520,6 +740,20 @@ function DashboardContent() {
                         </CardContent>
                       </Card>
                     ))}
+                  {scanResults.vulnerabilities.filter((vuln) => severity === "all" || vuln.severity === severity)
+                    .length === 0 && (
+                    <div className="text-center py-12">
+                      <CheckCircle className="h-16 w-16 text-green-400 mx-auto mb-4" />
+                      <h3 className="text-xl font-semibold text-white mb-2">
+                        No {severity === "all" ? "" : severity} vulnerabilities found
+                      </h3>
+                      <p className="text-gray-400">
+                        {severity === "all"
+                          ? "Your website appears to be secure!"
+                          : `No ${severity} severity issues detected.`}
+                      </p>
+                    </div>
+                  )}
                 </TabsContent>
               ))}
             </Tabs>
