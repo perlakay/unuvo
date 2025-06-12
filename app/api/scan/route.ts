@@ -402,7 +402,7 @@ async function checkInformationDisclosure(url: string) {
   const baseUrl = new URL(url).origin
 
   try {
-    // Check robots.txt
+    // Check robots.txt for sensitive path disclosure
     try {
       const robotsResponse = await fetch(`${baseUrl}/robots.txt`, {
         signal: AbortSignal.timeout(5000),
@@ -410,13 +410,30 @@ async function checkInformationDisclosure(url: string) {
 
       if (robotsResponse.ok) {
         const robotsText = await robotsResponse.text()
-        if (robotsText.includes("admin") || robotsText.includes("private")) {
+        const sensitivePatterns = [
+          { pattern: /Disallow:\s*\/admin/i, path: "admin" },
+          { pattern: /Disallow:\s*\/private/i, path: "private" },
+          { pattern: /Disallow:\s*\/secret/i, path: "secret" },
+          { pattern: /Disallow:\s*\/backup/i, path: "backup" },
+          { pattern: /Disallow:\s*\/config/i, path: "config" },
+          { pattern: /Disallow:\s*\/\.env/i, path: ".env" },
+        ]
+
+        const foundPaths: string[] = []
+        for (const { pattern, path } of sensitivePatterns) {
+          if (pattern.test(robotsText)) {
+            foundPaths.push(path)
+          }
+        }
+
+        if (foundPaths.length > 0) {
           issues.push({
-            title: "Sensitive Paths in Robots.txt",
+            title: "Sensitive Paths Disclosed in robots.txt",
             severity: "LOW",
-            description: "robots.txt file reveals sensitive directory paths",
+            description: `robots.txt file reveals sensitive directory paths: ${foundPaths.join(", ")}`,
             impact: "Potential information disclosure of admin or private areas",
-            remediation: "Review robots.txt and remove references to sensitive paths",
+            remediation:
+              "Review robots.txt and remove references to sensitive paths, or use more generic disallow rules",
           })
         }
       }
@@ -424,26 +441,58 @@ async function checkInformationDisclosure(url: string) {
       // Robots.txt not found or error - this is normal
     }
 
-    // Check for common sensitive files
-    const sensitiveFiles = [".env", "config.php", "wp-config.php", ".git/config"]
+    // Check for common sensitive files - only report if actually found
+    const sensitiveFiles = [
+      { path: ".env", severity: "CRITICAL", description: "Environment configuration file" },
+      { path: ".env.local", severity: "CRITICAL", description: "Local environment file" },
+      { path: ".env.production", severity: "CRITICAL", description: "Production environment file" },
+      { path: "config.php", severity: "HIGH", description: "PHP configuration file" },
+      { path: "wp-config.php", severity: "HIGH", description: "WordPress configuration file" },
+      { path: ".git/config", severity: "HIGH", description: "Git configuration file" },
+      { path: ".git/HEAD", severity: "HIGH", description: "Git repository file" },
+      { path: "composer.json", severity: "MEDIUM", description: "Composer dependencies file" },
+      { path: "package.json", severity: "MEDIUM", description: "Node.js dependencies file" },
+      { path: ".htaccess", severity: "MEDIUM", description: "Apache configuration file" },
+      { path: "web.config", severity: "MEDIUM", description: "IIS configuration file" },
+      { path: "Dockerfile", severity: "LOW", description: "Docker configuration file" },
+      { path: ".dockerignore", severity: "LOW", description: "Docker ignore file" },
+      { path: "docker-compose.yml", severity: "LOW", description: "Docker compose file" },
+    ]
+
+    const foundFiles: string[] = []
+
     for (const file of sensitiveFiles) {
       try {
-        const fileResponse = await fetch(`${baseUrl}/${file}`, {
+        const fileResponse = await fetch(`${baseUrl}/${file.path}`, {
           method: "HEAD",
           signal: AbortSignal.timeout(3000),
         })
-        if (fileResponse.ok) {
-          issues.push({
-            title: `Exposed Sensitive File: ${file}`,
-            severity: "CRITICAL",
-            description: `Sensitive configuration file ${file} is publicly accessible`,
-            impact: "Critical security information may be exposed",
-            remediation: "Block access to configuration files via web server configuration",
-          })
+
+        // Only report if file actually exists and returns content
+        if (fileResponse.ok && fileResponse.status === 200) {
+          const contentLength = fileResponse.headers.get("content-length")
+          const contentType = fileResponse.headers.get("content-type")
+
+          // Additional verification - make sure it's not just a 200 for everything
+          if (contentLength && Number.parseInt(contentLength) > 0) {
+            foundFiles.push(file.path)
+            issues.push({
+              title: `Exposed Sensitive File: ${file.path}`,
+              severity: file.severity,
+              description: `${file.description} is publicly accessible at /${file.path}`,
+              impact: `Sensitive configuration data in ${file.path} may be exposed to attackers`,
+              remediation: `Block public access to ${file.path} via web server configuration or move it outside the web root`,
+            })
+          }
         }
       } catch (error) {
-        // File not accessible (good)
+        // File not accessible (good) or network error
       }
+    }
+
+    // If no files found, add a positive note
+    if (foundFiles.length === 0) {
+      // Don't add this as a vulnerability, just skip
     }
 
     // Check for error disclosure
