@@ -303,6 +303,21 @@ function WebDashboardContent() {
     return subdomainResults.length
   }
 
+  // Helper function to safely check status
+  const getStatusClass = (subdomain: SubdomainResult) => {
+    const status = subdomain?.status || ""
+
+    if (status.includes && status.includes("Active")) {
+      if (status.includes("HTTPS")) {
+        return "bg-green-500/20 text-green-400"
+      }
+      return "bg-yellow-500/20 text-yellow-400"
+    } else if (status.includes && status.includes("Found")) {
+      return "bg-blue-500/20 text-blue-400"
+    }
+    return "bg-gray-500/20 text-gray-400"
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
@@ -523,24 +538,12 @@ function WebDashboardContent() {
                             <div className="flex items-center justify-between">
                               <div>
                                 <h4 className="font-semibold text-white">{subdomain.subdomain}</h4>
-                                <p className="text-sm text-gray-400">Status: {subdomain.status}</p>
+                                <p className="text-sm text-gray-400">Status: {subdomain.status || "Unknown"}</p>
                                 {subdomain.ip && subdomain.ip !== "Unknown" && (
                                   <p className="text-sm text-gray-400">IP: {subdomain.ip}</p>
                                 )}
                               </div>
-                              <Badge
-                                className={
-                                  subdomain.status.includes("Active")
-                                    ? subdomain.status.includes("HTTPS")
-                                      ? "bg-green-500/20 text-green-400"
-                                      : "bg-yellow-500/20 text-yellow-400"
-                                    : subdomain.status.includes("Found")
-                                      ? "bg-blue-500/20 text-blue-400"
-                                      : "bg-gray-500/20 text-gray-400"
-                                }
-                              >
-                                {subdomain.status}
-                              </Badge>
+                              <Badge className={getStatusClass(subdomain)}>{subdomain.status || "Unknown"}</Badge>
                             </div>
                             {subdomain.technologies && subdomain.technologies.length > 0 && (
                               <div className="mt-2">

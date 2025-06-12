@@ -1,15 +1,15 @@
 import { type NextRequest, NextResponse } from "next/server"
 
-// Passive subdomain discovery using DNS records and certificate transparency (like the Python script)
+// Passive subdomain discovery using DNS records and certificate transparency
 async function discoverSubdomains(domain: string, progressCallback?: (progress: number, found: any[]) => void) {
   const subdomains = new Set<string>()
-  subdomains.add(domain) // Add main domain
+  subdomains.add(domain)
 
   console.log(`Passive subdomain discovery for ${domain} using DNS records and CT logs`)
 
   if (progressCallback) progressCallback(10, Array.from(subdomains))
 
-  // Phase 1: Certificate Transparency Logs (primary method)
+  // Phase 1: Certificate Transparency Logs
   console.log(`Querying certificate transparency logs for ${domain}...`)
   try {
     const ctResponse = await fetch(`https://crt.sh/?q=%.${domain}&output=json`, {
@@ -24,7 +24,6 @@ async function discoverSubdomains(domain: string, progressCallback?: (progress: 
         const nameValue = entry.name_value || ""
         for (const subdomain of nameValue.split("\n")) {
           const cleanSubdomain = subdomain.trim().toLowerCase()
-          // Remove wildcard prefix and validate
           const finalSubdomain = cleanSubdomain.replace(/^\*\./, "")
           if ((finalSubdomain.endsWith(`.${domain}`) || finalSubdomain === domain) && !finalSubdomain.includes("*")) {
             subdomains.add(finalSubdomain)
@@ -33,7 +32,7 @@ async function discoverSubdomains(domain: string, progressCallback?: (progress: 
       }
     }
   } catch (error) {
-    console.log(`Warning: Certificate transparency query failed: ${error}`)
+    console.log(`Warning: Certificate transparency query failed`)
   }
 
   if (progressCallback) progressCallback(40, Array.from(subdomains))
@@ -41,7 +40,7 @@ async function discoverSubdomains(domain: string, progressCallback?: (progress: 
   // Phase 2: DNS Record Enumeration
   console.log(`Checking DNS records for subdomain hints...`)
 
-  // Check TXT records for subdomain references
+  // Check TXT records
   try {
     const txtResponse = await fetch(`https://dns.google/resolve?name=${domain}&type=TXT`, {
       signal: AbortSignal.timeout(5000),
@@ -51,7 +50,6 @@ async function discoverSubdomains(domain: string, progressCallback?: (progress: 
       if (txtData.Answer) {
         for (const record of txtData.Answer) {
           const txt = record.data.replace(/"/g, "")
-          // Look for domain patterns in TXT records
           const domainPattern = new RegExp(`([a-zA-Z0-9][-a-zA-Z0-9]*\\.)+${domain.replace(".", "\\.")}`, "g")
           const matches = txt.match(domainPattern)
           if (matches) {
@@ -65,7 +63,7 @@ async function discoverSubdomains(domain: string, progressCallback?: (progress: 
       }
     }
   } catch (error) {
-    console.log(`Warning: TXT record check failed: ${error}`)
+    console.log(`Warning: TXT record check failed`)
   }
 
   // Check MX records
@@ -77,7 +75,8 @@ async function discoverSubdomains(domain: string, progressCallback?: (progress: 
       const mxData = await mxResponse.json()
       if (mxData.Answer) {
         for (const record of mxData.Answer) {
-          const mx = record.data.split(" ")[1]?.replace(/\.$/, "") // Remove trailing dot
+          const mxParts = record.data.split(" ")
+          const mx = mxParts[1]?.replace(/\.$/, "")
           if (mx && mx.endsWith(`.${domain}`)) {
             subdomains.add(mx)
           }
@@ -85,7 +84,7 @@ async function discoverSubdomains(domain: string, progressCallback?: (progress: 
       }
     }
   } catch (error) {
-    console.log(`Warning: MX record check failed: ${error}`)
+    console.log(`Warning: MX record check failed`)
   }
 
   // Check NS records
@@ -97,7 +96,7 @@ async function discoverSubdomains(domain: string, progressCallback?: (progress: 
       const nsData = await nsResponse.json()
       if (nsData.Answer) {
         for (const record of nsData.Answer) {
-          const ns = record.data.replace(/\.$/, "") // Remove trailing dot
+          const ns = record.data.replace(/\.$/, "")
           if (ns.endsWith(`.${domain}`)) {
             subdomains.add(ns)
           }
@@ -105,12 +104,12 @@ async function discoverSubdomains(domain: string, progressCallback?: (progress: 
       }
     }
   } catch (error) {
-    console.log(`Warning: NS record check failed: ${error}`)
+    console.log(`Warning: NS record check failed`)
   }
 
   if (progressCallback) progressCallback(70, Array.from(subdomains))
 
-  // Phase 3: Quick check for very common subdomains (minimal wordlist like Python script)
+  // Phase 3: Common subdomain check
   console.log(`Checking common subdomain prefixes...`)
   const commonPrefixes = ["www", "mail", "webmail", "api", "dev", "stage", "blog", "shop", "support"]
 
@@ -141,7 +140,7 @@ async function discoverSubdomains(domain: string, progressCallback?: (progress: 
 
   if (progressCallback) progressCallback(90, Array.from(subdomains))
 
-  // Phase 4: Quick verification of discovered subdomains
+  // Phase 4: Verification
   const results: any[] = []
   const subdomainArray = Array.from(subdomains).sort()
 
@@ -149,7 +148,6 @@ async function discoverSubdomains(domain: string, progressCallback?: (progress: 
 
   const verificationPromises = subdomainArray.map(async (subdomain) => {
     try {
-      // Quick DNS verification
       const dnsResponse = await fetch(`https://dns.google/resolve?name=${subdomain}&type=A`, {
         signal: AbortSignal.timeout(2000),
       })
@@ -191,11 +189,11 @@ async function discoverSubdomains(domain: string, progressCallback?: (progress: 
   }
 
   if (progressCallback) progressCallback(100, results)
-  console.log(`Passive discovery complete: ${results.length} subdomains found using DNS records and CT logs`)
+  console.log(`Passive discovery complete: ${results.length} subdomains found`)
   return results
 }
 
-// Simple storage
+// Storage
 const scanStore = new Map<string, { progress: number; results: any[]; completed: boolean; error?: string }>()
 
 export async function POST(request: NextRequest) {
@@ -209,22 +207,20 @@ export async function POST(request: NextRequest) {
     const domain = new URL(url).hostname
     const scanId = `${domain}-${Date.now()}`
 
-    console.log(`Starting PASSIVE subdomain discovery for ${domain} (DNS records + CT logs)`)
+    console.log(`Starting passive subdomain discovery for ${domain}`)
 
     scanStore.set(scanId, { progress: 0, results: [], completed: false })
 
-    // Start passive discovery
-    const startTime = Date.now()
+    // Start discovery
     discoverSubdomains(domain, (progress, results) => {
       scanStore.set(scanId, { progress, results, completed: progress >= 100 })
     })
       .then((finalResults) => {
-        const duration = Date.now() - startTime
         scanStore.set(scanId, { progress: 100, results: finalResults, completed: true })
-        console.log(`PASSIVE discovery complete in ${duration}ms: ${finalResults.length} subdomains`)
+        console.log(`Discovery complete: ${finalResults.length} subdomains`)
       })
       .catch((error) => {
-        console.error("Passive discovery failed:", error)
+        console.error("Discovery failed:", error)
         scanStore.set(scanId, { progress: 0, results: [], completed: true, error: error.message })
       })
 
