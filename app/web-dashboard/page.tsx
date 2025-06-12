@@ -74,7 +74,7 @@ function WebDashboardContent() {
   const [subdomainScanning, setSubdomainScanning] = useState(false)
   const [subdomainResults, setSubdomainResults] = useState<SubdomainResult[]>([])
   const [subdomainProgress, setSubdomainProgress] = useState(0)
-  const [subdomainRequestId, setSubdomainRequestId] = useState<string | null>(null)
+  const [subdomainScanId, setSubdomainScanId] = useState<string | null>(null)
   const [subdomainDialogOpen, setSubdomainDialogOpen] = useState(false)
   const [hasScannedSubdomains, setHasScannedSubdomains] = useState(false)
 
@@ -109,69 +109,80 @@ function WebDashboardContent() {
 
   // Poll for subdomain scan progress
   useEffect(() => {
-    if (!subdomainRequestId || !subdomainScanning) return
+    if (!subdomainScanId || !subdomainScanning) return
+
+    console.log(`Starting polling for scan ID: ${subdomainScanId}`)
 
     const pollInterval = setInterval(async () => {
       try {
-        const response = await fetch(`/api/subdomain-scan?requestId=${subdomainRequestId}`)
+        console.log(`Polling scan status for: ${subdomainScanId}`)
+        const response = await fetch(`/api/subdomain-scan?scanId=${subdomainScanId}`)
         const data = await response.json()
+
+        console.log("Poll response:", data)
 
         if (data.success) {
           setSubdomainProgress(data.progress)
 
-          // Update results in real-time as they come in
-          if (data.subdomains && data.subdomains.length > 0) {
-            setSubdomainResults(data.subdomains)
+          // Update results in real-time
+          if (data.results && data.results.length > 0) {
+            setSubdomainResults(data.results)
+            console.log(`Updated results: ${data.results.length} subdomains found`)
           }
 
-          // If scan is complete, stop polling
-          if (!data.inProgress) {
+          // Check if scan is complete
+          if (data.completed) {
+            console.log("Scan completed!")
             clearInterval(pollInterval)
             setSubdomainScanning(false)
             setHasScannedSubdomains(true)
 
-            // Update local storage with final results
-            if (scanResults && data.subdomains) {
+            // Update local storage
+            if (scanResults && data.results) {
               const updatedResults = {
                 ...scanResults,
-                subdomains: data.subdomains,
+                subdomains: data.results,
               }
               localStorage.setItem("scanResults", JSON.stringify(updatedResults))
               setScanResults(updatedResults)
             }
 
-            toast({
-              title: "Subdomain Discovery Complete",
-              description: `Found ${data.subdomains.length} subdomains for ${new URL(scanResults?.url || "").hostname}`,
-            })
+            if (data.error) {
+              toast({
+                title: "Subdomain Scan Failed",
+                description: data.error,
+                variant: "destructive",
+              })
+            } else {
+              toast({
+                title: "Subdomain Discovery Complete",
+                description: `Found ${data.results.length} subdomains for ${new URL(scanResults?.url || "").hostname}`,
+              })
+            }
           }
-
-          // Handle error state
-          if (data.error) {
-            clearInterval(pollInterval)
-            setSubdomainScanning(false)
-            toast({
-              title: "Subdomain Discovery Failed",
-              description: data.error,
-              variant: "destructive",
-            })
-          }
+        } else {
+          console.error("Poll failed:", data.error)
         }
       } catch (error) {
         console.error("Error polling subdomain progress:", error)
       }
-    }, 1500) // Poll every 1.5 seconds for faster updates
+    }, 2000) // Poll every 2 seconds
 
-    return () => clearInterval(pollInterval)
-  }, [subdomainRequestId, subdomainScanning, scanResults])
+    return () => {
+      console.log("Cleaning up polling interval")
+      clearInterval(pollInterval)
+    }
+  }, [subdomainScanId, subdomainScanning, scanResults])
 
   const handleSubdomainScan = async () => {
     if (!scanResults) return
 
+    console.log(`Starting subdomain scan for: ${scanResults.url}`)
     setSubdomainScanning(true)
     setSubdomainProgress(0)
+    setSubdomainResults([])
     setSubdomainDialogOpen(true)
-    setHasScannedSubdomains(true) // Mark as scanned even if starting
+    setHasScannedSubdomains(true)
 
     try {
       const response = await fetch("/api/subdomain-scan", {
@@ -181,9 +192,11 @@ function WebDashboardContent() {
       })
 
       const data = await response.json()
+      console.log("Scan start response:", data)
+
       if (data.success) {
-        setSubdomainRequestId(data.requestId)
-        // The actual results will be fetched via polling
+        setSubdomainScanId(data.scanId)
+        console.log(`Scan started with ID: ${data.scanId}`)
       } else {
         throw new Error(data.error || "Failed to start subdomain scan")
       }
@@ -452,10 +465,8 @@ function WebDashboardContent() {
                   <div className="flex items-center space-x-3">
                     <Search className="h-6 w-6 text-cyan-400" />
                     <div>
-                      <h3 className="font-semibold text-white">Fast Subdomain Discovery</h3>
-                      <p className="text-sm text-gray-400">
-                        Optimized DNS enumeration and certificate transparency search
-                      </p>
+                      <h3 className="font-semibold text-white">DNS & Certificate Discovery</h3>
+                      <p className="text-sm text-gray-400">DNS enumeration and certificate transparency search</p>
                     </div>
                   </div>
                   <Dialog open={subdomainDialogOpen} onOpenChange={setSubdomainDialogOpen}>
@@ -496,10 +507,9 @@ function WebDashboardContent() {
                           <h3 className="text-xl font-semibold text-white mb-4">Discovering Subdomains</h3>
                           <Progress value={subdomainProgress} className="h-2 bg-gray-800 mb-4" />
                           <p className="text-gray-400">
-                            {subdomainProgress < 30 && "Checking common subdomain patterns..."}
-                            {subdomainProgress >= 30 && subdomainProgress < 60 && "Searching certificate logs..."}
-                            {subdomainProgress >= 60 && subdomainProgress < 80 && "Checking DNS records..."}
-                            {subdomainProgress >= 80 && "Verifying discovered subdomains..."}
+                            {subdomainProgress < 30 && "Checking DNS records..."}
+                            {subdomainProgress >= 30 && subdomainProgress < 70 && "Searching certificate logs..."}
+                            {subdomainProgress >= 70 && "Verifying discovered subdomains..."}
                           </p>
                           {subdomainResults.length > 0 && (
                             <p className="text-cyan-400 mt-4">Found {subdomainResults.length} subdomains so far</p>
@@ -508,47 +518,48 @@ function WebDashboardContent() {
                       )}
 
                       <div className="space-y-4 mt-6">
-                        {!subdomainScanning &&
-                          subdomainResults.map((subdomain, index) => (
-                            <div key={index} className="p-4 rounded-lg bg-white/5 border border-white/10">
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <h4 className="font-semibold text-white">{subdomain.subdomain}</h4>
-                                  <p className="text-sm text-gray-400">Status: {subdomain.status}</p>
-                                  {subdomain.ip && subdomain.ip !== "Unknown" && (
-                                    <p className="text-sm text-gray-400">IP: {subdomain.ip}</p>
-                                  )}
-                                </div>
-                                <Badge
-                                  className={
-                                    subdomain.status.includes("Active")
-                                      ? subdomain.status.includes("HTTPS")
-                                        ? "bg-green-500/20 text-green-400"
-                                        : "bg-yellow-500/20 text-yellow-400"
-                                      : "bg-gray-500/20 text-gray-400"
-                                  }
-                                >
-                                  {subdomain.status}
-                                </Badge>
+                        {subdomainResults.map((subdomain, index) => (
+                          <div key={index} className="p-4 rounded-lg bg-white/5 border border-white/10">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h4 className="font-semibold text-white">{subdomain.subdomain}</h4>
+                                <p className="text-sm text-gray-400">Status: {subdomain.status}</p>
+                                {subdomain.ip && subdomain.ip !== "Unknown" && (
+                                  <p className="text-sm text-gray-400">IP: {subdomain.ip}</p>
+                                )}
                               </div>
-                              {subdomain.technologies && subdomain.technologies.length > 0 && (
-                                <div className="mt-2">
-                                  <p className="text-xs text-gray-500">Technologies:</p>
-                                  <div className="flex flex-wrap gap-1 mt-1">
-                                    {subdomain.technologies.map((tech, techIndex) => (
-                                      <Badge
-                                        key={techIndex}
-                                        variant="outline"
-                                        className="text-xs border-white/20 text-gray-300"
-                                      >
-                                        {tech}
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
+                              <Badge
+                                className={
+                                  subdomain.status.includes("Active")
+                                    ? subdomain.status.includes("HTTPS")
+                                      ? "bg-green-500/20 text-green-400"
+                                      : "bg-yellow-500/20 text-yellow-400"
+                                    : subdomain.status.includes("Found")
+                                      ? "bg-blue-500/20 text-blue-400"
+                                      : "bg-gray-500/20 text-gray-400"
+                                }
+                              >
+                                {subdomain.status}
+                              </Badge>
                             </div>
-                          ))}
+                            {subdomain.technologies && subdomain.technologies.length > 0 && (
+                              <div className="mt-2">
+                                <p className="text-xs text-gray-500">Technologies:</p>
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {subdomain.technologies.map((tech, techIndex) => (
+                                    <Badge
+                                      key={techIndex}
+                                      variant="outline"
+                                      className="text-xs border-white/20 text-gray-300"
+                                    >
+                                      {tech}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
                         {!subdomainScanning && subdomainResults.length === 0 && hasScannedSubdomains && (
                           <div className="text-center py-8">
                             <Search className="h-12 w-12 text-gray-500 mx-auto mb-4" />
@@ -572,7 +583,7 @@ function WebDashboardContent() {
                     <div className="flex items-center">
                       <Loader2 className="h-4 w-4 text-cyan-400 animate-spin mr-2" />
                       <span className="text-sm text-cyan-300">
-                        Fast subdomain discovery in progress ({subdomainProgress}%)
+                        Subdomain discovery in progress ({subdomainProgress}%)
                       </span>
                     </div>
                     <Progress value={subdomainProgress} className="h-1 bg-gray-800 mt-2" />

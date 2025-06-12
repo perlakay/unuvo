@@ -1,70 +1,41 @@
 import { type NextRequest, NextResponse } from "next/server"
-import dns from "dns"
-import { promisify } from "util"
 
-const dnsLookup = promisify(dns.lookup)
-const dnsResolve = promisify(dns.resolve)
-
-// Optimized subdomain discovery with focused wordlist
+// Simple but effective subdomain discovery
 async function discoverSubdomains(domain: string, progressCallback?: (progress: number, found: any[]) => void) {
-  const subdomains = new Set<string>()
   const results: any[] = []
-  let discoveryProgress = 0
+  let progress = 0
 
-  // Add the main domain
-  subdomains.add(domain)
-
-  // Focused high-value subdomain wordlist (top 100 most common)
-  const commonPrefixes = [
-    // Essential web services
+  // High-value subdomain list based on real-world data
+  const subdomains = [
     "www",
     "mail",
     "webmail",
     "email",
-    "smtp",
-    "pop",
-    "imap",
-    "mx",
-    "exchange",
-    "autodiscover",
-
-    // Admin and management
     "admin",
     "administrator",
     "panel",
     "cpanel",
-    "control",
-    "dashboard",
+    "api",
+    "dev",
+    "test",
+    "staging",
+    "beta",
+    "demo",
+    "blog",
+    "shop",
+    "store",
+    "support",
+    "help",
+    "ftp",
+    "sftp",
+    "ssh",
+    "vpn",
+    "remote",
+    "secure",
     "portal",
     "login",
     "auth",
     "sso",
-
-    // Development environments
-    "dev",
-    "test",
-    "stage",
-    "staging",
-    "uat",
-    "demo",
-    "beta",
-    "alpha",
-    "preview",
-    "sandbox",
-
-    // API and services
-    "api",
-    "api1",
-    "api2",
-    "api-v1",
-    "api-v2",
-    "rest",
-    "graphql",
-    "service",
-    "services",
-    "ws",
-
-    // Content delivery
     "cdn",
     "static",
     "assets",
@@ -75,311 +46,187 @@ async function discoverSubdomains(domain: string, progressCallback?: (progress: 
     "download",
     "files",
     "docs",
-
-    // Mobile and apps
     "m",
     "mobile",
     "app",
     "apps",
-    "touch",
-    "wap",
-
-    // Business functions
-    "blog",
-    "news",
-    "shop",
-    "store",
-    "support",
-    "help",
-    "faq",
-    "wiki",
-
-    // Infrastructure
-    "ftp",
-    "sftp",
-    "ssh",
-    "vpn",
-    "remote",
-    "proxy",
-    "gateway",
-    "lb",
-    "cache",
-
-    // Monitoring and tools
-    "monitor",
     "status",
+    "monitor",
     "health",
-    "metrics",
     "analytics",
     "stats",
-    "log",
-    "logs",
-
-    // Regional/versioning
+    "db",
+    "database",
+    "backup",
+    "old",
+    "new",
+    "v1",
+    "v2",
     "us",
     "eu",
     "uk",
-    "de",
-    "fr",
-    "ca",
-    "au",
-    "v1",
-    "v2",
-    "old",
-    "new",
-
-    // Database and backend
-    "db",
-    "database",
-    "sql",
-    "redis",
-    "search",
-    "backup",
-
-    // Security
-    "secure",
-    "ssl",
-    "cert",
-    "firewall",
-    "security",
-
-    // Additional common ones
-    "www2",
-    "mail2",
-    "ns",
-    "ns1",
-    "ns2",
-    "dns",
-    "git",
-    "jenkins",
-    "ci",
-    "build",
   ]
 
-  // Update progress
-  if (progressCallback) {
-    progressCallback(5, results)
-    discoveryProgress = 5
-  }
+  console.log(`Starting subdomain discovery for ${domain}`)
 
-  // Phase 1: Fast DNS enumeration
-  console.log(`Starting DNS enumeration for ${domain} with ${commonPrefixes.length} prefixes`)
-  const batchSize = 25 // Smaller batches for better progress updates
-  for (let i = 0; i < commonPrefixes.length; i += batchSize) {
-    const batch = commonPrefixes.slice(i, i + batchSize)
+  // Phase 1: DNS enumeration
+  if (progressCallback) progressCallback(10, results)
 
-    const dnsPromises = batch.map(async (prefix) => {
-      const subdomain = `${prefix}.${domain}`
-      try {
-        await dnsLookup(subdomain)
-        subdomains.add(subdomain)
-        return subdomain
-      } catch (error) {
-        return null
+  for (let i = 0; i < subdomains.length; i++) {
+    const subdomain = `${subdomains[i]}.${domain}`
+
+    try {
+      // Try to resolve the subdomain
+      const response = await fetch(`https://dns.google/resolve?name=${subdomain}&type=A`, {
+        signal: AbortSignal.timeout(5000),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.Answer && data.Answer.length > 0) {
+          const ip = data.Answer[0].data
+          results.push({
+            subdomain,
+            status: "Found",
+            ip,
+            technologies: [],
+          })
+          console.log(`Found subdomain: ${subdomain} -> ${ip}`)
+        }
       }
-    })
-
-    await Promise.allSettled(dnsPromises)
-
-    // Update progress more frequently
-    const newProgress = Math.min(50, 5 + Math.floor((i / commonPrefixes.length) * 45))
-    if (newProgress > discoveryProgress && progressCallback) {
-      progressCallback(
-        newProgress,
-        Array.from(subdomains).map((s) => ({ subdomain: s, status: "Found" })),
-      )
-      discoveryProgress = newProgress
+    } catch (error) {
+      // Subdomain doesn't exist
     }
+
+    // Update progress
+    const newProgress = 10 + Math.floor((i / subdomains.length) * 40)
+    if (progressCallback && newProgress > progress) {
+      progressCallback(newProgress, [...results])
+      progress = newProgress
+    }
+
+    // Small delay to avoid rate limiting
+    await new Promise((resolve) => setTimeout(resolve, 100))
   }
 
-  // Phase 2: Certificate Transparency (with timeout)
-  console.log(`Checking Certificate Transparency logs for ${domain}`)
-  if (progressCallback) {
-    progressCallback(
-      55,
-      Array.from(subdomains).map((s) => ({ subdomain: s, status: "Found" })),
-    )
-  }
+  // Phase 2: Certificate Transparency check
+  if (progressCallback) progressCallback(60, results)
 
   try {
-    const ctResponse = await fetch(`https://crt.sh/?q=%.${encodeURIComponent(domain)}&output=json`, {
-      signal: AbortSignal.timeout(8000), // Reduced timeout
+    console.log(`Checking Certificate Transparency for ${domain}`)
+    const ctResponse = await fetch(`https://crt.sh/?q=%.${domain}&output=json`, {
+      signal: AbortSignal.timeout(10000),
     })
 
     if (ctResponse.ok) {
       const ctData = await ctResponse.json()
-      // Limit CT results to prevent slowdown
-      const limitedData = ctData.slice(0, 100)
+      const foundSubdomains = new Set(results.map((r) => r.subdomain))
 
-      for (const cert of limitedData) {
+      for (const cert of ctData.slice(0, 50)) {
+        // Limit to first 50 results
         if (cert.name_value) {
           const names = cert.name_value.split("\n")
           for (const name of names) {
             const cleanName = name.trim().toLowerCase()
-            if (cleanName.endsWith(`.${domain}`) && !cleanName.includes("*") && cleanName !== domain) {
-              subdomains.add(cleanName)
+            if (
+              cleanName.endsWith(`.${domain}`) &&
+              !cleanName.includes("*") &&
+              !foundSubdomains.has(cleanName) &&
+              cleanName !== domain
+            ) {
+              results.push({
+                subdomain: cleanName,
+                status: "Found (CT)",
+                ip: "Unknown",
+                technologies: [],
+              })
+              foundSubdomains.add(cleanName)
+              console.log(`Found subdomain from CT: ${cleanName}`)
             }
           }
         }
       }
     }
   } catch (error) {
-    console.log("CT log check skipped due to timeout")
+    console.log("Certificate Transparency check failed:", error)
   }
 
-  // Phase 3: Quick DNS record check
-  if (progressCallback) {
-    progressCallback(
-      65,
-      Array.from(subdomains).map((s) => ({ subdomain: s, status: "Found" })),
-    )
-  }
+  // Phase 3: Verify subdomains
+  if (progressCallback) progressCallback(70, results)
 
-  try {
-    const [mxRecords, nsRecords] = await Promise.allSettled([dnsResolve(domain, "MX"), dnsResolve(domain, "NS")])
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i]
+    try {
+      // Try HTTPS first
+      const httpsResponse = await fetch(`https://${result.subdomain}`, {
+        method: "HEAD",
+        signal: AbortSignal.timeout(5000),
+      })
 
-    if (mxRecords.status === "fulfilled") {
-      for (const record of mxRecords.value) {
-        if (record.exchange && record.exchange.endsWith(`.${domain}`)) {
-          subdomains.add(record.exchange)
-        }
+      if (httpsResponse.ok) {
+        result.status = "Active (HTTPS)"
+        result.technologies = detectTechnologies(httpsResponse.headers)
       }
-    }
-
-    if (nsRecords.status === "fulfilled") {
-      for (const record of nsRecords.value) {
-        if (record.endsWith(`.${domain}`)) {
-          subdomains.add(record)
-        }
-      }
-    }
-  } catch (error) {
-    console.log("DNS record check failed")
-  }
-
-  // Phase 4: Fast verification (parallel with smaller timeout)
-  console.log(`Verifying ${subdomains.size} discovered subdomains`)
-  if (progressCallback) {
-    progressCallback(
-      70,
-      Array.from(subdomains).map((s) => ({ subdomain: s, status: "Verifying" })),
-    )
-  }
-
-  const subdomainArray = Array.from(subdomains)
-  const verificationBatchSize = 10 // Process in smaller parallel batches
-
-  for (let i = 0; i < subdomainArray.length; i += verificationBatchSize) {
-    const batch = subdomainArray.slice(i, i + verificationBatchSize)
-
-    const verificationPromises = batch.map(async (subdomain) => {
+    } catch (httpsError) {
       try {
-        let status = "Inactive"
-        let technologies: string[] = []
+        // Try HTTP
+        const httpResponse = await fetch(`http://${result.subdomain}`, {
+          method: "HEAD",
+          signal: AbortSignal.timeout(5000),
+        })
 
-        // Quick HTTPS check with short timeout
-        try {
-          const response = await fetch(`https://${subdomain}`, {
-            method: "HEAD",
-            signal: AbortSignal.timeout(3000), // Very short timeout
-          })
-          if (response.ok) {
-            status = "Active (HTTPS)"
-            technologies = detectTechnologies(response.headers)
-          }
-        } catch (httpsError) {
-          // Quick HTTP fallback
-          try {
-            const response = await fetch(`http://${subdomain}`, {
-              method: "HEAD",
-              signal: AbortSignal.timeout(3000),
-            })
-            if (response.ok) {
-              status = "Active (HTTP)"
-              technologies = detectTechnologies(response.headers)
-            }
-          } catch (httpError) {
-            // Just mark as DNS-only if it resolved earlier
-            status = "DNS Only"
-          }
+        if (httpResponse.ok) {
+          result.status = "Active (HTTP)"
+          result.technologies = detectTechnologies(httpResponse.headers)
+        } else {
+          result.status = "DNS Only"
         }
-
-        return {
-          subdomain,
-          status,
-          ip: await getIpAddress(subdomain),
-          technologies,
-        }
-      } catch (error) {
-        return {
-          subdomain,
-          status: "Error",
-          ip: "Unknown",
-          technologies: [],
-        }
+      } catch (httpError) {
+        result.status = "DNS Only"
       }
-    })
-
-    const batchResults = await Promise.allSettled(verificationPromises)
-    const validResults = batchResults
-      .filter((result) => result.status === "fulfilled")
-      .map((result) => (result as PromiseFulfilledResult<any>).value)
-
-    results.push(...validResults)
+    }
 
     // Update progress
-    const newProgress = Math.min(95, 70 + Math.floor(((i + batch.length) / subdomainArray.length) * 25))
+    const newProgress = 70 + Math.floor(((i + 1) / results.length) * 25)
     if (progressCallback) {
       progressCallback(newProgress, [...results])
     }
+
+    // Small delay
+    await new Promise((resolve) => setTimeout(resolve, 200))
   }
 
-  // Final progress update
-  if (progressCallback) {
-    progressCallback(100, results)
-  }
-
-  console.log(`Subdomain discovery complete. Found ${results.length} subdomains for ${domain}`)
+  if (progressCallback) progressCallback(100, results)
+  console.log(`Subdomain discovery complete. Found ${results.length} subdomains`)
   return results
 }
 
-// Helper function to get IP address (with timeout)
-async function getIpAddress(hostname: string) {
-  try {
-    const { address } = await dnsLookup(hostname)
-    return address
-  } catch (error) {
-    return "Unknown"
-  }
-}
-
-// Simplified technology detection
-function detectTechnologies(headers: Headers) {
+function detectTechnologies(headers: Headers): string[] {
   const technologies: string[] = []
 
   const server = headers.get("server")
   if (server) {
-    const serverLower = server.toLowerCase()
-    if (serverLower.includes("nginx")) technologies.push("nginx")
-    if (serverLower.includes("apache")) technologies.push("apache")
-    if (serverLower.includes("cloudflare")) technologies.push("cloudflare")
+    if (server.toLowerCase().includes("nginx")) technologies.push("nginx")
+    if (server.toLowerCase().includes("apache")) technologies.push("apache")
+    if (server.toLowerCase().includes("cloudflare")) technologies.push("cloudflare")
   }
 
   if (headers.get("cf-ray")) technologies.push("cloudflare")
-  if (headers.get("x-fastly-request-id")) technologies.push("fastly")
-
-  const poweredBy = headers.get("x-powered-by")
-  if (poweredBy) {
-    const poweredByLower = poweredBy.toLowerCase()
-    if (poweredByLower.includes("php")) technologies.push("php")
-    if (poweredByLower.includes("asp.net")) technologies.push("asp.net")
-  }
+  if (headers.get("x-powered-by")?.toLowerCase().includes("php")) technologies.push("php")
 
   return technologies
 }
 
-// Store for progress and results
-const progressStore = new Map<string, { progress: number; results: any[] }>()
+// In-memory storage for scan results
+const scanStore = new Map<
+  string,
+  {
+    progress: number
+    results: any[]
+    completed: boolean
+    error?: string
+  }
+>()
 
 export async function POST(request: NextRequest) {
   try {
@@ -390,56 +237,80 @@ export async function POST(request: NextRequest) {
     }
 
     const domain = new URL(url).hostname
-    const requestId = `${domain}-${Date.now()}`
+    const scanId = `${domain}-${Date.now()}`
 
-    // Store initial state
-    progressStore.set(requestId, { progress: 0, results: [] })
+    console.log(`Starting subdomain scan for ${domain} with ID: ${scanId}`)
 
-    // Start subdomain discovery in the background
+    // Initialize scan
+    scanStore.set(scanId, {
+      progress: 0,
+      results: [],
+      completed: false,
+    })
+
+    // Start the scan in background
     discoverSubdomains(domain, (progress, results) => {
-      progressStore.set(requestId, { progress, results })
+      scanStore.set(scanId, {
+        progress,
+        results,
+        completed: progress >= 100,
+      })
+      console.log(`Scan ${scanId} progress: ${progress}%, found: ${results.length}`)
     })
       .then((finalResults) => {
-        progressStore.set(requestId, { progress: 100, results: finalResults })
+        scanStore.set(scanId, {
+          progress: 100,
+          results: finalResults,
+          completed: true,
+        })
+        console.log(`Scan ${scanId} completed with ${finalResults.length} results`)
       })
       .catch((error) => {
-        console.error("Subdomain discovery error:", error)
-        progressStore.set(requestId, { progress: -1, results: [] })
+        console.error(`Scan ${scanId} failed:`, error)
+        scanStore.set(scanId, {
+          progress: 0,
+          results: [],
+          completed: true,
+          error: error.message,
+        })
       })
 
     return NextResponse.json({
       success: true,
-      message: "Subdomain discovery started",
-      requestId,
-      inProgress: true,
-      progress: 0,
+      scanId,
+      message: "Subdomain scan started",
     })
   } catch (error) {
-    console.error("Subdomain scan error:", error)
-    return NextResponse.json({ error: "Failed to scan subdomains" }, { status: 500 })
+    console.error("Failed to start subdomain scan:", error)
+    return NextResponse.json({ error: "Failed to start scan" }, { status: 500 })
   }
 }
 
 export async function GET(request: NextRequest) {
-  const url = new URL(request.url)
-  const requestId = url.searchParams.get("requestId")
+  try {
+    const url = new URL(request.url)
+    const scanId = url.searchParams.get("scanId")
 
-  if (!requestId) {
-    return NextResponse.json({ error: "Request ID is required" }, { status: 400 })
+    if (!scanId) {
+      return NextResponse.json({ error: "scanId parameter required" }, { status: 400 })
+    }
+
+    const scanData = scanStore.get(scanId)
+
+    if (!scanData) {
+      return NextResponse.json({ error: "Scan not found" }, { status: 404 })
+    }
+
+    return NextResponse.json({
+      success: true,
+      progress: scanData.progress,
+      results: scanData.results,
+      completed: scanData.completed,
+      error: scanData.error,
+      total: scanData.results.length,
+    })
+  } catch (error) {
+    console.error("Failed to get scan status:", error)
+    return NextResponse.json({ error: "Failed to get scan status" }, { status: 500 })
   }
-
-  const stored = progressStore.get(requestId)
-  if (!stored) {
-    return NextResponse.json({ error: "Request not found" }, { status: 404 })
-  }
-
-  return NextResponse.json({
-    success: true,
-    requestId,
-    progress: stored.progress,
-    inProgress: stored.progress < 100 && stored.progress >= 0,
-    subdomains: stored.results,
-    total: stored.results.length,
-    error: stored.progress === -1 ? "Subdomain discovery failed" : null,
-  })
 }
