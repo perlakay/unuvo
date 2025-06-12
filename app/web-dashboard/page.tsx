@@ -76,6 +76,7 @@ function WebDashboardContent() {
   const [subdomainProgress, setSubdomainProgress] = useState(0)
   const [subdomainRequestId, setSubdomainRequestId] = useState<string | null>(null)
   const [subdomainDialogOpen, setSubdomainDialogOpen] = useState(false)
+  const [hasScannedSubdomains, setHasScannedSubdomains] = useState(false)
 
   useEffect(() => {
     const fetchScanResults = async () => {
@@ -87,8 +88,9 @@ function WebDashboardContent() {
         if (storedResult) {
           const results = JSON.parse(storedResult)
           setScanResults(results)
-          if (results.subdomains) {
+          if (results.subdomains && results.subdomains.length > 0) {
             setSubdomainResults(results.subdomains)
+            setHasScannedSubdomains(true)
           }
           setLoading(false)
           return
@@ -126,6 +128,7 @@ function WebDashboardContent() {
           if (!data.inProgress) {
             clearInterval(pollInterval)
             setSubdomainScanning(false)
+            setHasScannedSubdomains(true)
 
             // Update local storage with final results
             if (scanResults && data.subdomains) {
@@ -157,41 +160,10 @@ function WebDashboardContent() {
       } catch (error) {
         console.error("Error polling subdomain progress:", error)
       }
-    }, 2000) // Poll every 2 seconds
+    }, 1500) // Poll every 1.5 seconds for faster updates
 
     return () => clearInterval(pollInterval)
   }, [subdomainRequestId, subdomainScanning, scanResults])
-
-  const fetchSubdomainResults = async () => {
-    try {
-      // Use the same endpoint that provides both progress and results
-      const response = await fetch(`/api/subdomain-scan?requestId=${subdomainRequestId}`)
-      const data = await response.json()
-
-      if (data.success && data.subdomains) {
-        setSubdomainResults(data.subdomains)
-        setSubdomainScanning(false)
-
-        // Update local storage with the new subdomains
-        if (scanResults) {
-          const updatedResults = {
-            ...scanResults,
-            subdomains: data.subdomains,
-          }
-          localStorage.setItem("scanResults", JSON.stringify(updatedResults))
-          setScanResults(updatedResults)
-        }
-
-        toast({
-          title: "Subdomain Discovery Complete",
-          description: `Found ${data.subdomains.length} subdomains for ${new URL(scanResults?.url || "").hostname}`,
-        })
-      }
-    } catch (error) {
-      console.error("Error fetching subdomain results:", error)
-      setSubdomainScanning(false)
-    }
-  }
 
   const handleSubdomainScan = async () => {
     if (!scanResults) return
@@ -199,6 +171,7 @@ function WebDashboardContent() {
     setSubdomainScanning(true)
     setSubdomainProgress(0)
     setSubdomainDialogOpen(true)
+    setHasScannedSubdomains(true) // Mark as scanned even if starting
 
     try {
       const response = await fetch("/api/subdomain-scan", {
@@ -297,6 +270,24 @@ function WebDashboardContent() {
     if (score >= 80) return "from-green-500 to-emerald-500"
     if (score >= 60) return "from-yellow-500 to-orange-500"
     return "from-red-500 to-pink-500"
+  }
+
+  // Function to render subdomain count
+  const renderSubdomainCount = () => {
+    if (subdomainScanning) {
+      return (
+        <span className="flex items-center">
+          <Loader2 className="h-6 w-6 mr-2 animate-spin" />
+          <span className="text-2xl">{subdomainResults.length}</span>
+        </span>
+      )
+    }
+
+    if (!hasScannedSubdomains) {
+      return <span className="text-2xl text-gray-500">—</span>
+    }
+
+    return subdomainResults.length
   }
 
   if (loading) {
@@ -423,16 +414,7 @@ function WebDashboardContent() {
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <p className="text-sm font-medium text-gray-400 uppercase tracking-wider">Subdomains</p>
-                  <p className="text-4xl font-black text-cyan-400 mt-2">
-                    {subdomainScanning ? (
-                      <span className="flex items-center">
-                        <Loader2 className="h-6 w-6 mr-2 animate-spin" />
-                        <span className="text-2xl">...</span>
-                      </span>
-                    ) : (
-                      subdomainResults.length
-                    )}
-                  </p>
+                  <p className="text-4xl font-black text-cyan-400 mt-2">{renderSubdomainCount()}</p>
                 </div>
                 <div className="p-3 rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-500/20">
                   <Search className="h-8 w-8 text-cyan-400" />
@@ -447,6 +429,9 @@ function WebDashboardContent() {
                       : `Discovering subdomains... ${subdomainProgress}%`}
                   </p>
                 </div>
+              )}
+              {!hasScannedSubdomains && !subdomainScanning && (
+                <p className="text-xs text-gray-500 mt-2">Click "Discover" to find subdomains</p>
               )}
             </CardContent>
           </Card>
@@ -467,8 +452,10 @@ function WebDashboardContent() {
                   <div className="flex items-center space-x-3">
                     <Search className="h-6 w-6 text-cyan-400" />
                     <div>
-                      <h3 className="font-semibold text-white">Certificate Transparency & DNS</h3>
-                      <p className="text-sm text-gray-400">Discover subdomains using CT logs and DNS enumeration</p>
+                      <h3 className="font-semibold text-white">Fast Subdomain Discovery</h3>
+                      <p className="text-sm text-gray-400">
+                        Optimized DNS enumeration and certificate transparency search
+                      </p>
                     </div>
                   </div>
                   <Dialog open={subdomainDialogOpen} onOpenChange={setSubdomainDialogOpen}>
@@ -509,12 +496,10 @@ function WebDashboardContent() {
                           <h3 className="text-xl font-semibold text-white mb-4">Discovering Subdomains</h3>
                           <Progress value={subdomainProgress} className="h-2 bg-gray-800 mb-4" />
                           <p className="text-gray-400">
-                            {subdomainProgress < 30 && "Initializing subdomain discovery..."}
-                            {subdomainProgress >= 30 && subdomainProgress < 60 && "Checking DNS records..."}
-                            {subdomainProgress >= 60 &&
-                              subdomainProgress < 85 &&
-                              "Searching certificate transparency logs..."}
-                            {subdomainProgress >= 85 && "Verifying discovered subdomains..."}
+                            {subdomainProgress < 30 && "Checking common subdomain patterns..."}
+                            {subdomainProgress >= 30 && subdomainProgress < 60 && "Searching certificate logs..."}
+                            {subdomainProgress >= 60 && subdomainProgress < 80 && "Checking DNS records..."}
+                            {subdomainProgress >= 80 && "Verifying discovered subdomains..."}
                           </p>
                           {subdomainResults.length > 0 && (
                             <p className="text-cyan-400 mt-4">Found {subdomainResults.length} subdomains so far</p>
@@ -530,15 +515,17 @@ function WebDashboardContent() {
                                 <div>
                                   <h4 className="font-semibold text-white">{subdomain.subdomain}</h4>
                                   <p className="text-sm text-gray-400">Status: {subdomain.status}</p>
-                                  {subdomain.ip && <p className="text-sm text-gray-400">IP: {subdomain.ip}</p>}
+                                  {subdomain.ip && subdomain.ip !== "Unknown" && (
+                                    <p className="text-sm text-gray-400">IP: {subdomain.ip}</p>
+                                  )}
                                 </div>
                                 <Badge
                                   className={
-                                    subdomain.status === "Active"
-                                      ? "bg-green-500/20 text-green-400"
-                                      : subdomain.status === "Active (HTTP)"
-                                        ? "bg-yellow-500/20 text-yellow-400"
-                                        : "bg-gray-500/20 text-gray-400"
+                                    subdomain.status.includes("Active")
+                                      ? subdomain.status.includes("HTTPS")
+                                        ? "bg-green-500/20 text-green-400"
+                                        : "bg-yellow-500/20 text-yellow-400"
+                                      : "bg-gray-500/20 text-gray-400"
                                   }
                                 >
                                   {subdomain.status}
@@ -562,12 +549,16 @@ function WebDashboardContent() {
                               )}
                             </div>
                           ))}
-                        {!subdomainScanning && subdomainResults.length === 0 && (
+                        {!subdomainScanning && subdomainResults.length === 0 && hasScannedSubdomains && (
                           <div className="text-center py-8">
                             <Search className="h-12 w-12 text-gray-500 mx-auto mb-4" />
-                            <p className="text-gray-400">
-                              No subdomains discovered yet. Click "Discover" to start scanning.
-                            </p>
+                            <p className="text-gray-400">No subdomains discovered for this domain.</p>
+                          </div>
+                        )}
+                        {!subdomainScanning && !hasScannedSubdomains && (
+                          <div className="text-center py-8">
+                            <Search className="h-12 w-12 text-gray-500 mx-auto mb-4" />
+                            <p className="text-gray-400">Click "Discover" to start scanning for subdomains.</p>
                           </div>
                         )}
                       </div>
@@ -581,7 +572,7 @@ function WebDashboardContent() {
                     <div className="flex items-center">
                       <Loader2 className="h-4 w-4 text-cyan-400 animate-spin mr-2" />
                       <span className="text-sm text-cyan-300">
-                        Subdomain discovery in progress ({subdomainProgress}%)
+                        Fast subdomain discovery in progress ({subdomainProgress}%)
                       </span>
                     </div>
                     <Progress value={subdomainProgress} className="h-1 bg-gray-800 mt-2" />
