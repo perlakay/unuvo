@@ -427,7 +427,7 @@ function WebDashboardContent() {
                     {subdomainScanning ? (
                       <span className="flex items-center">
                         <Loader2 className="h-6 w-6 mr-2 animate-spin" />
-                        {subdomainResults.length}
+                        <span className="text-2xl">...</span>
                       </span>
                     ) : (
                       subdomainResults.length
@@ -441,7 +441,11 @@ function WebDashboardContent() {
               {subdomainScanning && (
                 <div className="mt-2">
                   <Progress value={subdomainProgress} className="h-1 bg-gray-800" />
-                  <p className="text-xs text-gray-400 mt-1">Discovering subdomains... {subdomainProgress}%</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    {subdomainResults.length > 0
+                      ? `Found ${subdomainResults.length} subdomains... ${subdomainProgress}%`
+                      : `Discovering subdomains... ${subdomainProgress}%`}
+                  </p>
                 </div>
               )}
             </CardContent>
