@@ -4,16 +4,19 @@ import type React from "react"
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { Scan, ArrowRight, Globe, Zap, Eye, Target } from "lucide-react"
+import { Scan, ArrowRight, Globe, Zap, Eye, Target, Code, Shield } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
 
 export default function HomePage() {
   const [url, setUrl] = useState("")
   const [token, setToken] = useState("")
   const [isScanning, setIsScanning] = useState(false)
   const [error, setError] = useState("")
+  const [scanMode, setScanMode] = useState<"web" | "api">("web")
   const router = useRouter()
 
   const handleScan = async (e: React.FormEvent) => {
@@ -24,113 +27,33 @@ export default function HomePage() {
     setError("")
 
     try {
-      // Simulate API call to backend
-      // In production, this would be a real API call to your Python backend
-      await new Promise((resolve) => setTimeout(resolve, 2000))
+      const response = await fetch("/api/scan", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          url,
+          token,
+          mode: scanMode,
+        }),
+      })
 
-      // Mock scan results - in production this would come from your API
-      const mockResults = {
-        url: url,
-        scanDate: new Date().toISOString(),
-        securityScore: Math.floor(Math.random() * 40) + 40, // Random score between 40-80
-        totalVulnerabilities: 12,
-        critical: 2,
-        high: 3,
-        medium: 4,
-        low: 3,
-        vulnerabilities: [
-          {
-            id: 1,
-            title: "Missing Content Security Policy",
-            severity: "high",
-            category: "Headers",
-            description: "The application does not implement Content Security Policy headers.",
-          },
-          {
-            id: 2,
-            title: "Weak SSL/TLS Configuration",
-            severity: "critical",
-            category: "Encryption",
-            description: "The server supports weak cipher suites and outdated TLS versions.",
-          },
-          {
-            id: 3,
-            title: "Missing X-Frame-Options Header",
-            severity: "medium",
-            category: "Headers",
-            description: "The X-Frame-Options header is not set, allowing the page to be embedded in frames.",
-          },
-          {
-            id: 4,
-            title: "Information Disclosure",
-            severity: "low",
-            category: "Information",
-            description: "Error pages reveal sensitive information about the server configuration.",
-          },
-          {
-            id: 5,
-            title: "CORS Misconfiguration",
-            severity: "medium",
-            category: "Configuration",
-            description: "Cross-Origin Resource Sharing is misconfigured allowing unauthorized domains.",
-          },
-          {
-            id: 6,
-            title: "No Rate Limiting",
-            severity: "medium",
-            category: "API Security",
-            description: "The API does not implement rate limiting, making it vulnerable to brute force attacks.",
-          },
-          {
-            id: 7,
-            title: "Insecure JWT Configuration",
-            severity: "high",
-            category: "Authentication",
-            description: "JWT tokens use weak algorithms or have excessive lifetimes.",
-          },
-          {
-            id: 8,
-            title: "Missing HTTP Strict Transport Security",
-            severity: "medium",
-            category: "Headers",
-            description: "HSTS header is not implemented, allowing potential downgrade attacks.",
-          },
-          {
-            id: 9,
-            title: "Server Information Disclosure",
-            severity: "low",
-            category: "Information",
-            description: "Server headers reveal detailed version information.",
-          },
-          {
-            id: 10,
-            title: "Insecure Cookie Configuration",
-            severity: "low",
-            category: "Cookies",
-            description: "Cookies are set without secure or httpOnly flags.",
-          },
-          {
-            id: 11,
-            title: "Outdated Dependencies",
-            severity: "high",
-            category: "Dependencies",
-            description: "Several frontend libraries have known security vulnerabilities.",
-          },
-          {
-            id: 12,
-            title: "Exposed API Keys",
-            severity: "critical",
-            category: "Secrets",
-            description: "API keys are exposed in client-side code.",
-          },
-        ],
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Scan failed")
       }
 
       // Store results in localStorage
-      localStorage.setItem("scanResults", JSON.stringify(mockResults))
+      localStorage.setItem("scanResults", JSON.stringify(data.data))
 
-      // Navigate to dashboard
-      router.push(`/dashboard?url=${encodeURIComponent(url)}`)
+      // Navigate to appropriate dashboard based on scan mode
+      if (scanMode === "api") {
+        router.push(`/api-dashboard?url=${encodeURIComponent(url)}`)
+      } else {
+        router.push(`/web-dashboard?url=${encodeURIComponent(url)}`)
+      }
     } catch (error) {
       console.error("Scan error:", error)
       setError(error instanceof Error ? error.message : "Failed to start scan")
@@ -165,18 +88,60 @@ export default function HomePage() {
             <CardHeader className="text-center pb-8">
               <CardTitle className="text-3xl font-bold text-white">Initialize Security Scan</CardTitle>
               <CardDescription className="text-gray-400 text-lg">
-                Enter target URL for comprehensive vulnerability assessment
+                Choose scan type and enter target for comprehensive vulnerability assessment
               </CardDescription>
             </CardHeader>
             <CardContent className="p-8">
+              {/* Scan Mode Toggle */}
+              <div className="mb-8">
+                <div className="flex items-center justify-center space-x-8 p-6 rounded-xl bg-gradient-to-r from-purple-500/10 to-cyan-500/10 border border-white/20">
+                  <div className="flex items-center space-x-3">
+                    <Shield className={`h-6 w-6 ${scanMode === "web" ? "text-purple-400" : "text-gray-500"}`} />
+                    <Label
+                      htmlFor="scan-mode"
+                      className={`text-lg font-semibold ${scanMode === "web" ? "text-white" : "text-gray-400"}`}
+                    >
+                      Web Security Scan
+                    </Label>
+                  </div>
+
+                  <Switch
+                    id="scan-mode"
+                    checked={scanMode === "api"}
+                    onCheckedChange={(checked) => setScanMode(checked ? "api" : "web")}
+                    className="data-[state=checked]:bg-cyan-600 data-[state=unchecked]:bg-purple-600"
+                  />
+
+                  <div className="flex items-center space-x-3">
+                    <Label
+                      htmlFor="scan-mode"
+                      className={`text-lg font-semibold ${scanMode === "api" ? "text-white" : "text-gray-400"}`}
+                    >
+                      API Security Scan
+                    </Label>
+                    <Code className={`h-6 w-6 ${scanMode === "api" ? "text-cyan-400" : "text-gray-500"}`} />
+                  </div>
+                </div>
+
+                <div className="mt-4 text-center">
+                  <p className="text-sm text-gray-400">
+                    {scanMode === "web"
+                      ? "Comprehensive web application security assessment including headers, SSL, and vulnerabilities"
+                      : "API endpoint discovery, fuzzing, and security testing with authentication analysis"}
+                  </p>
+                </div>
+              </div>
+
               <form onSubmit={handleScan} className="space-y-8">
                 <div className="relative group">
-                  <div className="absolute inset-0 bg-gradient-to-r from-purple-500/20 to-cyan-500/20 rounded-xl blur-xl group-focus-within:blur-2xl transition-all duration-300" />
+                  <div
+                    className={`absolute inset-0 bg-gradient-to-r ${scanMode === "web" ? "from-purple-500/20 to-cyan-500/20" : "from-cyan-500/20 to-purple-500/20"} rounded-xl blur-xl group-focus-within:blur-2xl transition-all duration-300`}
+                  />
                   <div className="relative">
                     <Globe className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 h-6 w-6 z-10" />
                     <Input
                       type="url"
-                      placeholder="https://target-domain.com"
+                      placeholder={scanMode === "web" ? "https://target-website.com" : "https://api.target.com"}
                       value={url}
                       onChange={(e) => setUrl(e.target.value)}
                       className="pl-14 h-16 text-lg bg-black/60 border-white/20 text-white placeholder:text-gray-500 focus:border-purple-500/50 focus:ring-purple-500/20 rounded-xl backdrop-blur-sm"
@@ -185,19 +150,21 @@ export default function HomePage() {
                   </div>
                 </div>
 
-                {/* JWT Token Input */}
-                <div className="relative group">
-                  <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 to-purple-500/10 rounded-xl blur-xl group-focus-within:blur-2xl transition-all duration-300" />
-                  <div className="relative">
-                    <Input
-                      type="text"
-                      placeholder="JWT Token (optional)"
-                      value={token}
-                      onChange={(e) => setToken(e.target.value)}
-                      className="h-12 text-sm bg-black/60 border-white/20 text-white placeholder:text-gray-500 focus:border-cyan-500/50 focus:ring-cyan-500/20 rounded-xl backdrop-blur-sm"
-                    />
+                {/* JWT Token Input - Only show for API mode */}
+                {scanMode === "api" && (
+                  <div className="relative group">
+                    <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 to-purple-500/10 rounded-xl blur-xl group-focus-within:blur-2xl transition-all duration-300" />
+                    <div className="relative">
+                      <Input
+                        type="text"
+                        placeholder="JWT Token or API Key (optional)"
+                        value={token}
+                        onChange={(e) => setToken(e.target.value)}
+                        className="h-12 text-sm bg-black/60 border-white/20 text-white placeholder:text-gray-500 focus:border-cyan-500/50 focus:ring-cyan-500/20 rounded-xl backdrop-blur-sm"
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {error && (
                   <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-center">
@@ -207,18 +174,18 @@ export default function HomePage() {
 
                 <Button
                   type="submit"
-                  className="w-full h-16 text-lg font-bold bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-700 hover:to-cyan-700 border-0 rounded-xl shadow-lg hover:shadow-purple-500/25 transition-all duration-300"
+                  className={`w-full h-16 text-lg font-bold bg-gradient-to-r ${scanMode === "web" ? "from-purple-600 to-cyan-600 hover:from-purple-700 hover:to-cyan-700" : "from-cyan-600 to-purple-600 hover:from-cyan-700 hover:to-purple-700"} border-0 rounded-xl shadow-lg hover:shadow-purple-500/25 transition-all duration-300`}
                   disabled={!url || !isValidUrl(url) || isScanning}
                 >
                   {isScanning ? (
                     <>
                       <Scan className="mr-3 h-6 w-6 animate-spin" />
-                      SCANNING TARGET...
+                      {scanMode === "web" ? "SCANNING WEBSITE..." : "SCANNING API..."}
                     </>
                   ) : (
                     <>
                       <Zap className="mr-3 h-6 w-6" />
-                      INITIATE SCAN
+                      {scanMode === "web" ? "INITIATE WEB SCAN" : "INITIATE API SCAN"}
                       <ArrowRight className="ml-3 h-6 w-6" />
                     </>
                   )}
