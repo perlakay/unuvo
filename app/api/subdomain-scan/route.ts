@@ -1,230 +1,202 @@
 import { type NextRequest, NextResponse } from "next/server"
 
-// Fast subdomain discovery - no delays, parallel processing
+// Passive subdomain discovery using DNS records and certificate transparency (like the Python script)
 async function discoverSubdomains(domain: string, progressCallback?: (progress: number, found: any[]) => void) {
-  const results: any[] = []
+  const subdomains = new Set<string>()
+  subdomains.add(domain) // Add main domain
 
-  // Focused, high-value wordlist (top 50 most common)
-  const subdomains = [
-    "www",
-    "mail",
-    "webmail",
-    "admin",
-    "api",
-    "dev",
-    "test",
-    "staging",
-    "beta",
-    "demo",
-    "blog",
-    "shop",
-    "support",
-    "ftp",
-    "cpanel",
-    "panel",
-    "portal",
-    "login",
-    "secure",
-    "cdn",
-    "static",
-    "assets",
-    "media",
-    "img",
-    "m",
-    "mobile",
-    "app",
-    "vpn",
-    "remote",
-    "email",
-    "smtp",
-    "pop",
-    "imap",
-    "ns",
-    "ns1",
-    "ns2",
-    "dns",
-    "mx",
-    "exchange",
-    "autodiscover",
-    "sso",
-    "auth",
-    "oauth",
-    "git",
-    "jenkins",
-    "ci",
-    "build",
-    "monitor",
-    "status",
-    "health",
-    "backup",
-    "old",
-    "new",
-  ]
+  console.log(`Passive subdomain discovery for ${domain} using DNS records and CT logs`)
 
-  console.log(`Fast subdomain discovery for ${domain} - checking ${subdomains.length} subdomains`)
+  if (progressCallback) progressCallback(10, Array.from(subdomains))
 
-  if (progressCallback) progressCallback(5, results)
-
-  // Phase 1: Fast parallel DNS resolution using Google DNS API
-  const batchSize = 10 // Process 10 at a time
-  for (let i = 0; i < subdomains.length; i += batchSize) {
-    const batch = subdomains.slice(i, i + batchSize)
-
-    const promises = batch.map(async (sub) => {
-      const subdomain = `${sub}.${domain}`
-      try {
-        const response = await fetch(`https://dns.google/resolve?name=${subdomain}&type=A`, {
-          signal: AbortSignal.timeout(3000),
-        })
-
-        if (response.ok) {
-          const data = await response.json()
-          if (data.Answer && data.Answer.length > 0) {
-            return {
-              subdomain,
-              status: "Found",
-              ip: data.Answer[0].data,
-              technologies: [],
-            }
-          }
-        }
-      } catch (error) {
-        // DNS resolution failed - subdomain doesn't exist
-      }
-      return null
-    })
-
-    const batchResults = await Promise.allSettled(promises)
-    const validResults = batchResults
-      .filter((result) => result.status === "fulfilled" && result.value !== null)
-      .map((result) => (result as PromiseFulfilledResult<any>).value)
-
-    results.push(...validResults)
-
-    // Update progress
-    const progress = Math.min(60, 5 + Math.floor(((i + batchSize) / subdomains.length) * 55))
-    if (progressCallback) {
-      progressCallback(progress, [...results])
-    }
-  }
-
-  // Phase 2: Quick Certificate Transparency check
-  if (progressCallback) progressCallback(65, results)
-
+  // Phase 1: Certificate Transparency Logs (primary method)
+  console.log(`Querying certificate transparency logs for ${domain}...`)
   try {
-    const ctResponse = await fetch(`https://crt.sh/?q=%.${domain}&output=json`, { signal: AbortSignal.timeout(5000) })
+    const ctResponse = await fetch(`https://crt.sh/?q=%.${domain}&output=json`, {
+      signal: AbortSignal.timeout(15000),
+    })
 
     if (ctResponse.ok) {
       const ctData = await ctResponse.json()
-      const foundSubdomains = new Set(results.map((r) => r.subdomain))
+      console.log(`Found ${ctData.length} certificate entries`)
 
-      // Only process first 30 CT results for speed
-      for (const cert of ctData.slice(0, 30)) {
-        if (cert.name_value) {
-          const names = cert.name_value.split("\n")
-          for (const name of names) {
-            const cleanName = name.trim().toLowerCase()
-            if (
-              cleanName.endsWith(`.${domain}`) &&
-              !cleanName.includes("*") &&
-              !foundSubdomains.has(cleanName) &&
-              cleanName !== domain
-            ) {
-              results.push({
-                subdomain: cleanName,
-                status: "Found (CT)",
-                ip: "Unknown",
-                technologies: [],
-              })
-              foundSubdomains.add(cleanName)
+      for (const entry of ctData) {
+        const nameValue = entry.name_value || ""
+        for (const subdomain of nameValue.split("\n")) {
+          const cleanSubdomain = subdomain.trim().toLowerCase()
+          // Remove wildcard prefix and validate
+          const finalSubdomain = cleanSubdomain.replace(/^\*\./, "")
+          if ((finalSubdomain.endsWith(`.${domain}`) || finalSubdomain === domain) && !finalSubdomain.includes("*")) {
+            subdomains.add(finalSubdomain)
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.log(`Warning: Certificate transparency query failed: ${error}`)
+  }
+
+  if (progressCallback) progressCallback(40, Array.from(subdomains))
+
+  // Phase 2: DNS Record Enumeration
+  console.log(`Checking DNS records for subdomain hints...`)
+
+  // Check TXT records for subdomain references
+  try {
+    const txtResponse = await fetch(`https://dns.google/resolve?name=${domain}&type=TXT`, {
+      signal: AbortSignal.timeout(5000),
+    })
+    if (txtResponse.ok) {
+      const txtData = await txtResponse.json()
+      if (txtData.Answer) {
+        for (const record of txtData.Answer) {
+          const txt = record.data.replace(/"/g, "")
+          // Look for domain patterns in TXT records
+          const domainPattern = new RegExp(`([a-zA-Z0-9][-a-zA-Z0-9]*\\.)+${domain.replace(".", "\\.")}`, "g")
+          const matches = txt.match(domainPattern)
+          if (matches) {
+            for (const match of matches) {
+              if (match.endsWith(`.${domain}`)) {
+                subdomains.add(match)
+              }
             }
           }
         }
       }
     }
   } catch (error) {
-    console.log("CT check skipped")
+    console.log(`Warning: TXT record check failed: ${error}`)
   }
 
-  // Phase 3: Quick HTTP verification (parallel, no delays)
-  if (progressCallback) progressCallback(75, results)
-
-  const verificationBatchSize = 15
-  for (let i = 0; i < results.length; i += verificationBatchSize) {
-    const batch = results.slice(i, i + verificationBatchSize)
-
-    const verifyPromises = batch.map(async (result) => {
-      try {
-        // Quick HTTPS check
-        const httpsResponse = await fetch(`https://${result.subdomain}`, {
-          method: "HEAD",
-          signal: AbortSignal.timeout(2000), // Very short timeout
-        })
-
-        if (httpsResponse.ok) {
-          result.status = "Active (HTTPS)"
-          result.technologies = getQuickTech(httpsResponse.headers)
-          return result
-        }
-      } catch (httpsError) {
-        // Try HTTP quickly
-        try {
-          const httpResponse = await fetch(`http://${result.subdomain}`, {
-            method: "HEAD",
-            signal: AbortSignal.timeout(2000),
-          })
-
-          if (httpResponse.ok) {
-            result.status = "Active (HTTP)"
-            result.technologies = getQuickTech(httpResponse.headers)
-          } else {
-            result.status = "DNS Only"
+  // Check MX records
+  try {
+    const mxResponse = await fetch(`https://dns.google/resolve?name=${domain}&type=MX`, {
+      signal: AbortSignal.timeout(5000),
+    })
+    if (mxResponse.ok) {
+      const mxData = await mxResponse.json()
+      if (mxData.Answer) {
+        for (const record of mxData.Answer) {
+          const mx = record.data.split(" ")[1]?.replace(/\.$/, "") // Remove trailing dot
+          if (mx && mx.endsWith(`.${domain}`)) {
+            subdomains.add(mx)
           }
-        } catch (httpError) {
-          result.status = "DNS Only"
         }
       }
-      return result
+    }
+  } catch (error) {
+    console.log(`Warning: MX record check failed: ${error}`)
+  }
+
+  // Check NS records
+  try {
+    const nsResponse = await fetch(`https://dns.google/resolve?name=${domain}&type=NS`, {
+      signal: AbortSignal.timeout(5000),
     })
+    if (nsResponse.ok) {
+      const nsData = await nsResponse.json()
+      if (nsData.Answer) {
+        for (const record of nsData.Answer) {
+          const ns = record.data.replace(/\.$/, "") // Remove trailing dot
+          if (ns.endsWith(`.${domain}`)) {
+            subdomains.add(ns)
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.log(`Warning: NS record check failed: ${error}`)
+  }
 
-    await Promise.allSettled(verifyPromises)
+  if (progressCallback) progressCallback(70, Array.from(subdomains))
 
-    // Update progress
-    const progress = Math.min(95, 75 + Math.floor(((i + verificationBatchSize) / results.length) * 20))
-    if (progressCallback) {
-      progressCallback(progress, [...results])
+  // Phase 3: Quick check for very common subdomains (minimal wordlist like Python script)
+  console.log(`Checking common subdomain prefixes...`)
+  const commonPrefixes = ["www", "mail", "webmail", "api", "dev", "stage", "blog", "shop", "support"]
+
+  const commonChecks = commonPrefixes.map(async (prefix) => {
+    const commonSubdomain = `${prefix}.${domain}`
+    try {
+      const response = await fetch(`https://dns.google/resolve?name=${commonSubdomain}&type=A`, {
+        signal: AbortSignal.timeout(3000),
+      })
+      if (response.ok) {
+        const data = await response.json()
+        if (data.Answer && data.Answer.length > 0) {
+          return commonSubdomain
+        }
+      }
+    } catch (error) {
+      // Subdomain doesn't exist
+    }
+    return null
+  })
+
+  const commonResults = await Promise.allSettled(commonChecks)
+  for (const result of commonResults) {
+    if (result.status === "fulfilled" && result.value) {
+      subdomains.add(result.value)
+    }
+  }
+
+  if (progressCallback) progressCallback(90, Array.from(subdomains))
+
+  // Phase 4: Quick verification of discovered subdomains
+  const results: any[] = []
+  const subdomainArray = Array.from(subdomains).sort()
+
+  console.log(`Verifying ${subdomainArray.length} discovered subdomains...`)
+
+  const verificationPromises = subdomainArray.map(async (subdomain) => {
+    try {
+      // Quick DNS verification
+      const dnsResponse = await fetch(`https://dns.google/resolve?name=${subdomain}&type=A`, {
+        signal: AbortSignal.timeout(2000),
+      })
+
+      if (dnsResponse.ok) {
+        const dnsData = await dnsResponse.json()
+        if (dnsData.Answer && dnsData.Answer.length > 0) {
+          const ip = dnsData.Answer[0].data
+          return {
+            subdomain,
+            status: "Active",
+            ip,
+            technologies: [],
+          }
+        }
+      }
+
+      return {
+        subdomain,
+        status: "DNS Only",
+        ip: "Unknown",
+        technologies: [],
+      }
+    } catch (error) {
+      return {
+        subdomain,
+        status: "Error",
+        ip: "Unknown",
+        technologies: [],
+      }
+    }
+  })
+
+  const verificationResults = await Promise.allSettled(verificationPromises)
+  for (const result of verificationResults) {
+    if (result.status === "fulfilled") {
+      results.push(result.value)
     }
   }
 
   if (progressCallback) progressCallback(100, results)
-  console.log(`Fast discovery complete: ${results.length} subdomains found`)
+  console.log(`Passive discovery complete: ${results.length} subdomains found using DNS records and CT logs`)
   return results
 }
 
-// Quick technology detection
-function getQuickTech(headers: Headers): string[] {
-  const tech: string[] = []
-  const server = headers.get("server")?.toLowerCase() || ""
-
-  if (server.includes("nginx")) tech.push("nginx")
-  if (server.includes("apache")) tech.push("apache")
-  if (server.includes("cloudflare")) tech.push("cloudflare")
-  if (headers.get("cf-ray")) tech.push("cloudflare")
-  if (headers.get("x-powered-by")?.toLowerCase().includes("php")) tech.push("php")
-
-  return tech
-}
-
-// Simple in-memory storage
-const scanStore = new Map<
-  string,
-  {
-    progress: number
-    results: any[]
-    completed: boolean
-    error?: string
-  }
->()
+// Simple storage
+const scanStore = new Map<string, { progress: number; results: any[]; completed: boolean; error?: string }>()
 
 export async function POST(request: NextRequest) {
   try {
@@ -237,45 +209,29 @@ export async function POST(request: NextRequest) {
     const domain = new URL(url).hostname
     const scanId = `${domain}-${Date.now()}`
 
-    console.log(`Starting FAST subdomain scan for ${domain}`)
+    console.log(`Starting PASSIVE subdomain discovery for ${domain} (DNS records + CT logs)`)
 
-    // Initialize
-    scanStore.set(scanId, {
-      progress: 0,
-      results: [],
-      completed: false,
-    })
+    scanStore.set(scanId, { progress: 0, results: [], completed: false })
 
-    // Start fast discovery
+    // Start passive discovery
+    const startTime = Date.now()
     discoverSubdomains(domain, (progress, results) => {
-      scanStore.set(scanId, {
-        progress,
-        results,
-        completed: progress >= 100,
-      })
+      scanStore.set(scanId, { progress, results, completed: progress >= 100 })
     })
       .then((finalResults) => {
-        scanStore.set(scanId, {
-          progress: 100,
-          results: finalResults,
-          completed: true,
-        })
-        console.log(`FAST scan complete: ${finalResults.length} subdomains`)
+        const duration = Date.now() - startTime
+        scanStore.set(scanId, { progress: 100, results: finalResults, completed: true })
+        console.log(`PASSIVE discovery complete in ${duration}ms: ${finalResults.length} subdomains`)
       })
       .catch((error) => {
-        console.error("Fast scan failed:", error)
-        scanStore.set(scanId, {
-          progress: 0,
-          results: [],
-          completed: true,
-          error: error.message,
-        })
+        console.error("Passive discovery failed:", error)
+        scanStore.set(scanId, { progress: 0, results: [], completed: true, error: error.message })
       })
 
     return NextResponse.json({
       success: true,
       scanId,
-      message: "Fast subdomain scan started",
+      message: "Passive subdomain discovery started",
     })
   } catch (error) {
     console.error("Failed to start scan:", error)
@@ -293,7 +249,6 @@ export async function GET(request: NextRequest) {
     }
 
     const scanData = scanStore.get(scanId)
-
     if (!scanData) {
       return NextResponse.json({ error: "Scan not found" }, { status: 404 })
     }
@@ -307,7 +262,6 @@ export async function GET(request: NextRequest) {
       total: scanData.results.length,
     })
   } catch (error) {
-    console.error("Failed to get scan status:", error)
     return NextResponse.json({ error: "Failed to get status" }, { status: 500 })
   }
 }
