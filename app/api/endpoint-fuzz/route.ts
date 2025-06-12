@@ -1,10 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server"
 
-// API endpoint fuzzing based on smart wordlists
+// API endpoint fuzzing with real requests
 async function fuzzEndpoints(baseUrl: string) {
   const endpoints: any[] = []
+  const baseUrlObj = new URL(baseUrl)
+  const origin = baseUrlObj.origin
 
-  // Smart wordlist for API endpoints (from your Python script concept)
+  // Smart wordlist for API endpoints
   const apiPaths = [
     // Common API paths
     "/api",
@@ -111,23 +113,22 @@ async function fuzzEndpoints(baseUrl: string) {
     "/.htaccess",
   ]
 
-  const httpMethods = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"]
+  const httpMethods = ["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"]
 
-  // Fuzz endpoints
-  for (const path of apiPaths) {
-    const method = httpMethods[Math.floor(Math.random() * httpMethods.length)]
-
+  // Fuzz endpoints with real requests
+  const fuzzPromises = apiPaths.map(async (path) => {
+    // Try GET/HEAD first as it's less intrusive
     try {
       const startTime = Date.now()
-      const response = await fetch(`${baseUrl}${path}`, {
-        method: method === "GET" ? "HEAD" : method, // Use HEAD for GET to avoid large responses
+      const response = await fetch(`${origin}${path}`, {
+        method: "HEAD",
         signal: AbortSignal.timeout(5000),
       })
       const endTime = Date.now()
 
       const endpoint = {
         endpoint: path,
-        method,
+        method: "HEAD",
         status: response.status,
         responseTime: endTime - startTime,
         contentLength: Number.parseInt(response.headers.get("content-length") || "0"),
@@ -147,28 +148,53 @@ async function fuzzEndpoints(baseUrl: string) {
         endpoint.vulnerabilities.push("Internal Server Error")
       }
 
-      if (response.status === 403 && method !== "GET") {
-        endpoint.vulnerabilities.push("Method Not Allowed - Potential Bypass")
+      // Only include interesting responses
+      if (response.status !== 404) {
+        endpoints.push(endpoint)
       }
 
-      // Only include interesting responses
-      if (response.status !== 404 && response.status !== 405) {
-        endpoints.push(endpoint)
+      // If HEAD works, try other methods for API endpoints
+      if (
+        (response.status === 200 || response.status === 204) &&
+        (path.startsWith("/api") || path.startsWith("/rest") || path.includes("graphql"))
+      ) {
+        // Try OPTIONS to see allowed methods
+        try {
+          const optionsResponse = await fetch(`${origin}${path}`, {
+            method: "OPTIONS",
+            signal: AbortSignal.timeout(3000),
+          })
+
+          const allowedMethods =
+            optionsResponse.headers.get("allow") || optionsResponse.headers.get("access-control-allow-methods") || ""
+
+          // If OPTIONS reveals allowed methods, add them
+          if (allowedMethods) {
+            const methods = allowedMethods.split(",").map((m) => m.trim())
+            for (const method of methods) {
+              if (method !== "HEAD" && method !== "OPTIONS" && httpMethods.includes(method)) {
+                endpoints.push({
+                  endpoint: path,
+                  method,
+                  status: 200, // Assumed since it's in allowed methods
+                  responseTime: 0,
+                  contentLength: 0,
+                  vulnerabilities: [],
+                })
+              }
+            }
+          }
+        } catch (error) {
+          // OPTIONS request failed
+        }
       }
     } catch (error) {
       // Endpoint not accessible or timeout
-      if (Math.random() > 0.9) {
-        // Occasionally add timeout endpoints
-        endpoints.push({
-          endpoint: path,
-          method,
-          status: 0,
-          responseTime: 5000,
-          vulnerabilities: ["Timeout - Potential DoS Vector"],
-        })
-      }
     }
-  }
+  })
+
+  // Wait for all fuzzing to complete
+  await Promise.allSettled(fuzzPromises)
 
   // Sort by status code and response time
   endpoints.sort((a, b) => {
@@ -176,7 +202,7 @@ async function fuzzEndpoints(baseUrl: string) {
     return a.responseTime - b.responseTime
   })
 
-  return endpoints.slice(0, 50) // Limit results
+  return endpoints
 }
 
 export async function POST(request: NextRequest) {
@@ -187,12 +213,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "URL is required" }, { status: 400 })
     }
 
-    const baseUrl = new URL(url).origin
-
-    // Simulate processing time
-    await new Promise((resolve) => setTimeout(resolve, 4000))
-
-    const endpoints = await fuzzEndpoints(baseUrl)
+    // Perform endpoint fuzzing
+    const endpoints = await fuzzEndpoints(url)
 
     return NextResponse.json({
       success: true,

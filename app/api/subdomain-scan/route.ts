@@ -1,13 +1,19 @@
 import { type NextRequest, NextResponse } from "next/server"
+import dns from "dns"
+import { promisify } from "util"
 
-// Subdomain discovery based on your Python script
+const dnsLookup = promisify(dns.lookup)
+const dnsResolve = promisify(dns.resolve)
+
+// Subdomain discovery with real DNS lookups
 async function discoverSubdomains(domain: string) {
   const subdomains = new Set<string>()
+  const results: any[] = []
 
   // Add the main domain
   subdomains.add(domain)
 
-  // Common subdomain prefixes (from your Python script)
+  // Common subdomain prefixes
   const commonPrefixes = [
     "www",
     "mail",
@@ -56,44 +62,131 @@ async function discoverSubdomains(domain: string) {
     "proxy",
   ]
 
-  // Check common subdomains
-  for (const prefix of commonPrefixes) {
+  // Check common subdomains with DNS lookups
+  const dnsPromises = commonPrefixes.map(async (prefix) => {
     const subdomain = `${prefix}.${domain}`
     try {
-      // Simulate DNS lookup
-      const response = await fetch(`https://${subdomain}`, {
-        method: "HEAD",
-        signal: AbortSignal.timeout(3000),
-      })
-
-      if (response.ok || response.status < 500) {
-        subdomains.add(subdomain)
-      }
+      // Try DNS lookup
+      await dnsLookup(subdomain)
+      subdomains.add(subdomain)
     } catch (error) {
       // Subdomain doesn't exist or is not accessible
     }
-  }
-
-  // Simulate certificate transparency log search
-  // In a real implementation, this would query crt.sh or similar services
-  const ctLogSubdomains = [`mail.${domain}`, `www.${domain}`, `api.${domain}`, `admin.${domain}`, `dev.${domain}`]
-
-  ctLogSubdomains.forEach((sub) => {
-    if (Math.random() > 0.3) {
-      // Simulate some being found
-      subdomains.add(sub)
-    }
   })
 
-  // Convert to array and create result objects
-  const results = Array.from(subdomains).map((subdomain) => ({
-    subdomain,
-    status: Math.random() > 0.2 ? "Active" : "Inactive",
-    ip: `192.168.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`,
-    technologies: Math.random() > 0.5 ? ["nginx", "cloudflare"] : ["apache", "php"],
-  }))
+  // Wait for all DNS lookups to complete
+  await Promise.allSettled(dnsPromises)
+
+  // Try to get MX records for the domain to find mail servers
+  try {
+    const mxRecords = await dnsResolve(domain, "MX")
+    for (const record of mxRecords) {
+      if (record.exchange.includes(domain)) {
+        subdomains.add(record.exchange)
+      }
+    }
+  } catch (error) {
+    // No MX records or error
+  }
+
+  // Try to get NS records for the domain to find nameservers
+  try {
+    const nsRecords = await dnsResolve(domain, "NS")
+    for (const record of nsRecords) {
+      if (record.includes(domain)) {
+        subdomains.add(record)
+      }
+    }
+  } catch (error) {
+    // No NS records or error
+  }
+
+  // Check if subdomains are active by making HTTP requests
+  for (const subdomain of subdomains) {
+    try {
+      // Try HTTPS first
+      const httpsUrl = `https://${subdomain}`
+      const response = await fetch(httpsUrl, {
+        method: "HEAD",
+        signal: AbortSignal.timeout(5000),
+      })
+
+      results.push({
+        subdomain,
+        status: "Active",
+        ip: await getIpAddress(subdomain),
+        technologies: detectTechnologies(response.headers),
+      })
+    } catch (error) {
+      try {
+        // Try HTTP if HTTPS fails
+        const httpUrl = `http://${subdomain}`
+        const response = await fetch(httpUrl, {
+          method: "HEAD",
+          signal: AbortSignal.timeout(5000),
+        })
+
+        results.push({
+          subdomain,
+          status: "Active (HTTP)",
+          ip: await getIpAddress(subdomain),
+          technologies: detectTechnologies(response.headers),
+        })
+      } catch (error) {
+        // Subdomain exists in DNS but web server is not responding
+        results.push({
+          subdomain,
+          status: "Inactive",
+          ip: await getIpAddress(subdomain),
+          technologies: [],
+        })
+      }
+    }
+  }
 
   return results
+}
+
+// Helper function to get IP address
+async function getIpAddress(hostname: string) {
+  try {
+    const { address } = await dnsLookup(hostname)
+    return address
+  } catch (error) {
+    return "Unknown"
+  }
+}
+
+// Helper function to detect technologies from headers
+function detectTechnologies(headers: Headers) {
+  const technologies: string[] = []
+
+  // Check server header
+  const server = headers.get("server")
+  if (server) {
+    if (server.toLowerCase().includes("nginx")) technologies.push("nginx")
+    if (server.toLowerCase().includes("apache")) technologies.push("apache")
+    if (server.toLowerCase().includes("microsoft-iis")) technologies.push("IIS")
+  }
+
+  // Check for Cloudflare
+  if (headers.get("cf-ray") || headers.get("cf-cache-status")) {
+    technologies.push("cloudflare")
+  }
+
+  // Check for other CDNs
+  if (headers.get("x-fastly-request-id")) technologies.push("fastly")
+  if (headers.get("x-akamai-transformed")) technologies.push("akamai")
+
+  // Check for common frameworks
+  if (headers.get("x-powered-by")) {
+    const poweredBy = headers.get("x-powered-by")
+    if (poweredBy?.toLowerCase().includes("php")) technologies.push("php")
+    if (poweredBy?.toLowerCase().includes("asp.net")) technologies.push("asp.net")
+    if (poweredBy?.toLowerCase().includes("express")) technologies.push("express")
+  }
+
+  return technologies
 }
 
 export async function POST(request: NextRequest) {
@@ -106,9 +199,7 @@ export async function POST(request: NextRequest) {
 
     const domain = new URL(url).hostname
 
-    // Simulate processing time
-    await new Promise((resolve) => setTimeout(resolve, 3000))
-
+    // Perform subdomain discovery
     const subdomains = await discoverSubdomains(domain)
 
     return NextResponse.json({
