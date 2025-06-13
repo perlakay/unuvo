@@ -133,63 +133,67 @@ export default function HomePage() {
               </div>
 
               <form onSubmit={handleScan} className="space-y-8">
-                <div className="relative group">
-                  <div
-                    className={`absolute inset-0 bg-gradient-to-r ${scanMode === "web" ? "from-purple-500/20 to-cyan-500/20" : "from-cyan-500/20 to-purple-500/20"} rounded-xl blur-xl group-focus-within:blur-2xl transition-all duration-300`}
-                  />
-                  <div className="relative">
-                    <Globe className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 h-6 w-6 z-10" />
-                    <Input
-                      type="url"
-                      placeholder={scanMode === "web" ? "https://target-website.com" : "https://api.target.com"}
-                      value={url}
-                      onChange={(e) => setUrl(e.target.value)}
-                      className="pl-14 h-16 text-lg bg-black/60 border-white/20 text-white placeholder:text-gray-500 focus:border-purple-500/50 focus:ring-purple-500/20 rounded-xl backdrop-blur-sm"
-                      required
-                    />
-                  </div>
-                </div>
-
-                {/* JWT Token Input - Only show for API mode */}
-                {scanMode === "api" && (
-                  <div className="relative group">
-                    <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 to-purple-500/10 rounded-xl blur-xl group-focus-within:blur-2xl transition-all duration-300" />
-                    <div className="relative">
-                      <Input
-                        type="text"
-                        placeholder="JWT Token or API Key (optional)"
-                        value={token}
-                        onChange={(e) => setToken(e.target.value)}
-                        className="h-12 text-sm bg-black/60 border-white/20 text-white placeholder:text-gray-500 focus:border-cyan-500/50 focus:ring-cyan-500/20 rounded-xl backdrop-blur-sm"
-                      />
+                {scanMode === "web" ? (
+                  <>
+                    <div className="relative group">
+                      <div className="absolute inset-0 bg-gradient-to-r from-purple-500/20 to-cyan-500/20 rounded-xl blur-xl group-focus-within:blur-2xl transition-all duration-300" />
+                      <div className="relative">
+                        <Globe className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 h-6 w-6 z-10" />
+                        <Input
+                          type="url"
+                          placeholder="https://target-website.com"
+                          value={url}
+                          onChange={(e) => setUrl(e.target.value)}
+                          className="pl-14 h-16 text-lg bg-black/60 border-white/20 text-white placeholder:text-gray-500 focus:border-purple-500/50 focus:ring-purple-500/20 rounded-xl backdrop-blur-sm"
+                          required
+                        />
+                      </div>
                     </div>
+
+                    {error && (
+                      <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-center">
+                        {error}
+                      </div>
+                    )}
+
+                    <Button
+                      type="submit"
+                      className="w-full h-16 text-lg font-bold bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-700 hover:to-cyan-700 border-0 rounded-xl shadow-lg hover:shadow-purple-500/25 transition-all duration-300"
+                      disabled={!url || !isValidUrl(url) || isScanning}
+                    >
+                      {isScanning ? (
+                        <>
+                          <Scan className="mr-3 h-6 w-6 animate-spin" />
+                          SCANNING WEBSITE...
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="mr-3 h-6 w-6" />
+                          INITIATE WEB SCAN
+                          <ArrowRight className="ml-3 h-6 w-6" />
+                        </>
+                      )}
+                    </Button>
+                  </>
+                ) : (
+                  <div className="p-10 rounded-xl bg-gradient-to-r from-cyan-500/10 to-purple-500/10 border border-cyan-500/20 text-center">
+                    <div className="inline-flex items-center px-3 py-1 rounded-full bg-cyan-500/20 text-cyan-400 text-sm font-medium mb-6">
+                      <Zap className="w-4 h-4 mr-2" />
+                      Coming Soon
+                    </div>
+                    <h3 className="text-2xl font-bold text-white mb-4">API Security Scanner</h3>
+                    <p className="text-gray-400 mb-6">
+                      Our advanced API security scanning tool is currently in development. Stay tuned for comprehensive
+                      API endpoint discovery, authentication analysis, and vulnerability detection.
+                    </p>
+                    <Button
+                      disabled
+                      className="bg-gradient-to-r from-cyan-600/50 to-purple-600/50 hover:from-cyan-600/50 hover:to-purple-600/50 text-white/70 cursor-not-allowed"
+                    >
+                      Launching Soon
+                    </Button>
                   </div>
                 )}
-
-                {error && (
-                  <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-center">
-                    {error}
-                  </div>
-                )}
-
-                <Button
-                  type="submit"
-                  className={`w-full h-16 text-lg font-bold bg-gradient-to-r ${scanMode === "web" ? "from-purple-600 to-cyan-600 hover:from-purple-700 hover:to-cyan-700" : "from-cyan-600 to-purple-600 hover:from-cyan-700 hover:to-purple-700"} border-0 rounded-xl shadow-lg hover:shadow-purple-500/25 transition-all duration-300`}
-                  disabled={!url || !isValidUrl(url) || isScanning}
-                >
-                  {isScanning ? (
-                    <>
-                      <Scan className="mr-3 h-6 w-6 animate-spin" />
-                      {scanMode === "web" ? "SCANNING WEBSITE..." : "SCANNING API..."}
-                    </>
-                  ) : (
-                    <>
-                      <Zap className="mr-3 h-6 w-6" />
-                      {scanMode === "web" ? "INITIATE WEB SCAN" : "INITIATE API SCAN"}
-                      <ArrowRight className="ml-3 h-6 w-6" />
-                    </>
-                  )}
-                </Button>
               </form>
             </CardContent>
           </Card>

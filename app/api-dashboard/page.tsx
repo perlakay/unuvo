@@ -23,14 +23,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
 
 interface Vulnerability {
   id: number
@@ -342,7 +334,11 @@ function APIDashboardContent() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="p-4 rounded-xl bg-gradient-to-r from-orange-500/10 to-red-500/10 border border-orange-500/20">
+              {/* API Endpoint Fuzzing - Coming Soon */}
+              <div className="p-4 rounded-xl bg-gradient-to-r from-orange-500/10 to-red-500/10 border border-orange-500/20 relative overflow-hidden">
+                <div className="absolute top-0 right-0 bg-gradient-to-l from-orange-500/30 to-red-500/30 text-white px-3 py-1 text-xs font-bold uppercase tracking-wider">
+                  Coming Soon
+                </div>
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center space-x-3">
                     <Zap className="h-6 w-6 text-orange-400" />
@@ -351,87 +347,19 @@ function APIDashboardContent() {
                       <p className="text-sm text-gray-400">Discover hidden API endpoints using intelligent wordlists</p>
                     </div>
                   </div>
-                  <Dialog>
-                    <DialogTrigger asChild>
-                      <Button
-                        onClick={handleEndpointFuzzing}
-                        disabled={endpointFuzzing}
-                        className="bg-orange-600/20 border border-orange-500/30 text-orange-300 hover:bg-orange-600/30"
-                      >
-                        {endpointFuzzing ? (
-                          <>
-                            <Scan className="h-4 w-4 mr-2 animate-spin" />
-                            Fuzzing...
-                          </>
-                        ) : (
-                          <>
-                            <Zap className="h-4 w-4 mr-2" />
-                            Fuzz
-                          </>
-                        )}
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="bg-black/90 border border-white/20 text-white max-w-4xl max-h-[80vh] overflow-y-auto">
-                      <DialogHeader>
-                        <DialogTitle className="text-2xl font-bold text-orange-400">
-                          API Endpoint Fuzzing Results
-                        </DialogTitle>
-                        <DialogDescription className="text-gray-400">
-                          Discovered {endpointResults.length} endpoints for {new URL(scanResults.url).hostname}
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-4 mt-6">
-                        {endpointResults.map((endpoint, index) => (
-                          <div key={index} className="p-4 rounded-lg bg-white/5 border border-white/10">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <h4 className="font-semibold text-white">
-                                  {endpoint.method} {endpoint.endpoint}
-                                </h4>
-                                <p className="text-sm text-gray-400">Response Time: {endpoint.responseTime}ms</p>
-                                {endpoint.contentLength && (
-                                  <p className="text-sm text-gray-400">Size: {endpoint.contentLength} bytes</p>
-                                )}
-                              </div>
-                              <Badge
-                                className={
-                                  endpoint.status < 300
-                                    ? "bg-green-500/20 text-green-400"
-                                    : endpoint.status < 400
-                                      ? "bg-yellow-500/20 text-yellow-400"
-                                      : endpoint.status < 500
-                                        ? "bg-orange-500/20 text-orange-400"
-                                        : "bg-red-500/20 text-red-400"
-                                }
-                              >
-                                {endpoint.status}
-                              </Badge>
-                            </div>
-                            {endpoint.vulnerabilities && endpoint.vulnerabilities.length > 0 && (
-                              <div className="mt-2">
-                                <p className="text-xs text-red-400">Potential Vulnerabilities:</p>
-                                <div className="flex flex-wrap gap-1 mt-1">
-                                  {endpoint.vulnerabilities.map((vuln, vulnIndex) => (
-                                    <Badge key={vulnIndex} className="text-xs bg-red-500/20 text-red-400">
-                                      {vuln}
-                                    </Badge>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                        {endpointResults.length === 0 && (
-                          <div className="text-center py-8">
-                            <Zap className="h-12 w-12 text-gray-500 mx-auto mb-4" />
-                            <p className="text-gray-400">
-                              No endpoints discovered yet. Click "Fuzz" to start scanning.
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    </DialogContent>
-                  </Dialog>
+                  <Button
+                    disabled
+                    className="bg-orange-600/20 border border-orange-500/30 text-orange-300 opacity-70 cursor-not-allowed"
+                  >
+                    <Zap className="h-4 w-4 mr-2" />
+                    Launching Soon
+                  </Button>
+                </div>
+                <div className="mt-4 p-3 bg-black/30 rounded-lg border border-orange-500/10">
+                  <p className="text-sm text-gray-400">
+                    Our advanced API endpoint fuzzing tool is currently in development. This feature will allow you to
+                    discover hidden API endpoints, test for vulnerabilities, and analyze authentication mechanisms.
+                  </p>
                 </div>
               </div>
             </CardContent>
