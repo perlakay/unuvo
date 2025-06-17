@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 
-// Ultra-fast subdomain discovery - minimal checks, immediate results
-async function discoverSubdomains(domain: string) {
+// Real subdomain discovery with actual verification
+async function discoverSubdomains(domain: string, progressCallback?: (progress: number, found: any[]) => void) {
   const results: any[] = []
 
   // Add main domain immediately
@@ -12,7 +12,9 @@ async function discoverSubdomains(domain: string) {
     technologies: [],
   })
 
-  // Common subdomains to check
+  if (progressCallback) progressCallback(10, [...results])
+
+  // Common subdomains to actually check
   const commonSubdomains = [
     "www",
     "mail",
@@ -41,81 +43,135 @@ async function discoverSubdomains(domain: string) {
     "mx",
   ]
 
-  // Check common subdomains in parallel
-  const promises = commonSubdomains.map(async (prefix) => {
+  console.log(`Starting real DNS verification for ${domain}`)
+
+  // PHASE 1: Real DNS verification
+  const verifiedSubdomains: any[] = []
+
+  for (let i = 0; i < commonSubdomains.length; i++) {
+    const prefix = commonSubdomains[i]
     const subdomain = `${prefix}.${domain}`
+
     try {
+      // Use Google's DNS-over-HTTPS API for real verification
       const response = await fetch(`https://dns.google/resolve?name=${subdomain}&type=A`, {
-        signal: AbortSignal.timeout(1500), // Very short timeout
+        signal: AbortSignal.timeout(3000),
       })
 
       if (response.ok) {
         const data = await response.json()
         if (data.Answer && data.Answer.length > 0) {
-          return {
+          const ip = data.Answer[0].data
+          verifiedSubdomains.push({
             subdomain,
-            status: "Found",
-            ip: data.Answer[0].data,
+            status: "Active (DNS)",
+            ip: ip,
             technologies: [],
-          }
+          })
+          console.log(`✓ Found active subdomain: ${subdomain} -> ${ip}`)
         }
       }
     } catch (error) {
-      // Ignore errors for speed
+      // DNS lookup failed - subdomain doesn't exist
+      console.log(`✗ No DNS record for: ${subdomain}`)
     }
-    return null
-  })
 
-  // Wait for all DNS lookups with a timeout
-  const dnsResults = await Promise.allSettled(promises)
-  for (const result of dnsResults) {
-    if (result.status === "fulfilled" && result.value) {
-      results.push(result.value)
-    }
+    // Update progress
+    const progress = 10 + Math.floor((i / commonSubdomains.length) * 40)
+    if (progressCallback) progressCallback(progress, [...results, ...verifiedSubdomains])
+
+    // Small delay to avoid rate limiting
+    await new Promise((resolve) => setTimeout(resolve, 100))
   }
 
-  // Try to get certificate transparency data (but don't wait too long)
+  // Add verified subdomains to results
+  results.push(...verifiedSubdomains)
+
+  if (progressCallback) progressCallback(60, [...results])
+
+  // PHASE 2: Certificate Transparency check (for additional discovery)
   try {
-    const ctPromise = fetch(`https://crt.sh/?q=%.${domain}&output=json`, {
-      signal: AbortSignal.timeout(5000), // Short timeout
+    console.log(`Checking certificate transparency for ${domain}`)
+    const ctResponse = await fetch(`https://crt.sh/?q=%.${domain}&output=json`, {
+      signal: AbortSignal.timeout(8000),
     })
-      .then(async (response) => {
-        if (response.ok) {
-          const data = await response.json()
-          // Only process a limited number of results
-          const limitedData = data.slice(0, 20)
 
-          for (const entry of limitedData) {
-            const nameValue = entry.name_value || ""
-            for (const subdomain of nameValue.split("\n")) {
-              const cleanSubdomain = subdomain.trim().toLowerCase()
-              const finalSubdomain = cleanSubdomain.replace(/^\*\./, "")
+    if (ctResponse.ok) {
+      const ctData = await ctResponse.json()
+      console.log(`Found ${ctData.length} certificate entries`)
 
-              if (
-                (finalSubdomain.endsWith(`.${domain}`) || finalSubdomain === domain) &&
-                !finalSubdomain.includes("*") &&
-                !results.some((r) => r.subdomain === finalSubdomain)
-              ) {
-                results.push({
-                  subdomain: finalSubdomain,
-                  status: "Found (CT)",
-                  ip: "Not Checked",
-                  technologies: [],
-                })
-              }
-            }
+      const ctSubdomains = new Set<string>()
+
+      // Process certificate data
+      for (const entry of ctData.slice(0, 50)) {
+        // Limit to first 50 entries
+        const nameValue = entry.name_value || ""
+        for (const name of nameValue.split("\n")) {
+          const cleanName = name.trim().toLowerCase()
+          const finalName = cleanName.replace(/^\*\./, "")
+
+          if (
+            (finalName.endsWith(`.${domain}`) || finalName === domain) &&
+            !finalName.includes("*") &&
+            !results.some((r) => r.subdomain === finalName) &&
+            finalName !== domain // Don't duplicate main domain
+          ) {
+            ctSubdomains.add(finalName)
           }
         }
-      })
-      .catch(() => {
-        // Ignore CT errors
-      })
+      }
 
-    // Only wait for 5 seconds max
-    await Promise.race([ctPromise, new Promise((resolve) => setTimeout(resolve, 5000))])
+      // Verify CT-discovered subdomains
+      const ctArray = Array.from(ctSubdomains).slice(0, 10) // Limit verification
+      for (let i = 0; i < ctArray.length; i++) {
+        const subdomain = ctArray[i]
+
+        try {
+          const response = await fetch(`https://dns.google/resolve?name=${subdomain}&type=A`, {
+            signal: AbortSignal.timeout(2000),
+          })
+
+          if (response.ok) {
+            const data = await response.json()
+            if (data.Answer && data.Answer.length > 0) {
+              results.push({
+                subdomain,
+                status: "Active (CT)",
+                ip: data.Answer[0].data,
+                technologies: [],
+              })
+              console.log(`✓ Verified CT subdomain: ${subdomain}`)
+            } else {
+              // Found in CT but no current DNS record
+              results.push({
+                subdomain,
+                status: "Found in CT (No DNS)",
+                ip: "No current record",
+                technologies: [],
+              })
+              console.log(`⚠ CT subdomain without DNS: ${subdomain}`)
+            }
+          }
+        } catch (error) {
+          // CT subdomain verification failed
+          console.log(`✗ CT subdomain verification failed: ${subdomain}`)
+        }
+
+        // Update progress
+        const progress = 60 + Math.floor((i / ctArray.length) * 35)
+        if (progressCallback) progressCallback(progress, [...results])
+
+        await new Promise((resolve) => setTimeout(resolve, 200))
+      }
+    }
   } catch (error) {
-    // Ignore CT errors completely
+    console.log("Certificate transparency check failed:", error)
   }
+
+  if (progressCallback) progressCallback(100, results)
+
+  console.log(`Real subdomain discovery complete: ${results.length} total results`)
+  console.log(`Active subdomains found: ${results.filter((r) => r.status.includes("Active")).length}`)
 
   return results
 }
@@ -137,7 +193,6 @@ setInterval(
   () => {
     const now = Date.now()
     for (const [key, value] of scanStore.entries()) {
-      // Remove entries older than 30 minutes
       if (now - value.timestamp > 30 * 60 * 1000) {
         scanStore.delete(key)
       }
@@ -157,7 +212,7 @@ export async function POST(request: NextRequest) {
     const domain = new URL(url).hostname
     const scanId = `${domain}-${Date.now()}`
 
-    console.log(`Starting guaranteed-fast subdomain discovery for ${domain}`)
+    console.log(`Starting REAL subdomain discovery for ${domain}`)
 
     // Set initial state
     scanStore.set(scanId, {
@@ -167,112 +222,58 @@ export async function POST(request: NextRequest) {
       timestamp: Date.now(),
     })
 
-    // IMMEDIATELY add the main domain as a result
-    scanStore.set(scanId, {
-      progress: 10,
-      results: [{ subdomain: domain, status: "Main Domain", ip: "Primary" }],
-      completed: false,
-      timestamp: Date.now(),
-    })
+    // Start real discovery in background
+    setTimeout(async () => {
+      try {
+        const results = await discoverSubdomains(domain, (progress, currentResults) => {
+          scanStore.set(scanId, {
+            progress,
+            results: currentResults,
+            completed: progress >= 100,
+            timestamp: Date.now(),
+          })
+        })
 
-    // Generate some fake subdomains for immediate feedback
-    const commonSubdomains = ["www", "mail", "api", "blog", "shop", "admin", "dev", "test", "staging"]
-
-    // Add common subdomains immediately for instant feedback
-    setTimeout(() => {
-      const currentState = scanStore.get(scanId)
-      if (!currentState) return
-
-      const fakeResults = [
-        ...currentState.results,
-        ...commonSubdomains.map((prefix) => ({
-          subdomain: `${prefix}.${domain}`,
-          status: "Found",
-          ip: "Checking...",
-          technologies: [],
-        })),
-      ]
-
-      scanStore.set(scanId, {
-        ...currentState,
-        progress: 30,
-        results: fakeResults,
-        timestamp: Date.now(),
-      })
-    }, 1000)
-
-    // Add more results after a delay
-    setTimeout(() => {
-      const currentState = scanStore.get(scanId)
-      if (!currentState) return
-
-      // Add some more subdomains
-      const moreSubdomains = ["support", "portal", "cdn", "media", "static", "app", "mobile", "beta"]
-
-      const moreResults = [
-        ...currentState.results,
-        ...moreSubdomains.map((prefix) => ({
-          subdomain: `${prefix}.${domain}`,
-          status: "Found (CT)",
-          ip: "Not Checked",
-          technologies: [],
-        })),
-      ]
-
-      scanStore.set(scanId, {
-        ...currentState,
-        progress: 60,
-        results: moreResults,
-        timestamp: Date.now(),
-      })
-    }, 3000)
-
-    // Add final results and mark as complete
-    setTimeout(() => {
-      const currentState = scanStore.get(scanId)
-      if (!currentState) return
-
-      // Add some final subdomains
-      const finalSubdomains = ["ns1", "ns2", "mx", "vpn", "remote", "secure"]
-
-      const finalResults = [
-        ...currentState.results,
-        ...finalSubdomains.map((prefix) => ({
-          subdomain: `${prefix}.${domain}`,
-          status: "Found (DNS)",
-          ip: "192.168.1.1",
-          technologies: [],
-        })),
-      ]
-
-      // IMPORTANT: Mark as 100% complete
-      scanStore.set(scanId, {
-        ...currentState,
-        progress: 100,
-        results: finalResults,
-        completed: true,
-        timestamp: Date.now(),
-      })
-    }, 5000)
-
-    // GUARANTEED COMPLETION: Force completion after 10 seconds no matter what
-    setTimeout(() => {
-      const currentState = scanStore.get(scanId)
-      if (currentState && !currentState.completed) {
-        console.log("Forcing scan completion after timeout")
+        // Final update
         scanStore.set(scanId, {
-          ...currentState,
+          progress: 100,
+          results,
+          completed: true,
+          timestamp: Date.now(),
+        })
+
+        console.log(`Real discovery complete: ${results.length} subdomains found`)
+      } catch (error) {
+        console.error("Real discovery failed:", error)
+        const currentState = scanStore.get(scanId)
+        scanStore.set(scanId, {
+          progress: 100,
+          results: currentState?.results || [{ subdomain: domain, status: "Main Domain", ip: "Primary" }],
+          completed: true,
+          error: "Scan completed with errors",
+          timestamp: Date.now(),
+        })
+      }
+    }, 0)
+
+    // Guaranteed completion timeout (30 seconds for real scanning)
+    setTimeout(() => {
+      const scan = scanStore.get(scanId)
+      if (scan && !scan.completed) {
+        console.log("Forcing scan completion after 30 second timeout")
+        scanStore.set(scanId, {
+          ...scan,
           progress: 100,
           completed: true,
           timestamp: Date.now(),
         })
       }
-    }, 10000)
+    }, 30000)
 
     return NextResponse.json({
       success: true,
       scanId,
-      message: "Guaranteed-fast subdomain discovery started",
+      message: "Real subdomain discovery started",
     })
   } catch (error) {
     console.error("Failed to start scan:", error)
